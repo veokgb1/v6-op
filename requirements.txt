@@ -1,0 +1,11 @@
+# V6OP Phase 0+1 dependencies (实测版本锁定)
+# Python 3.13.3, Windows 11
+pandas==3.0.2
+baostock>=0.8.8
+akshare==1.18.60
+yfinance>=0.2.36
+czsc==0.10.12
+pytest==9.0.3
+smartmoneyconcepts==0.0.27
+pywencai==0.13.1
+numpy>=1.24
