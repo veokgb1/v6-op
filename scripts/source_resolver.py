@@ -19,12 +19,15 @@ import re
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 _SCRIPTS_DIR = Path(__file__).parent.resolve()
 _PROJECT_ROOT = _SCRIPTS_DIR.parent
 
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from time_utils import iso_cst
 
 _CODE_PATTERN = re.compile(r"\b\d{6}\.(?:SZ|SH|BJ)\b", re.IGNORECASE)
 
@@ -54,6 +57,7 @@ def resolve(
     wencai_limit: int = 300,
     ashare_path: Path | None = None,
     ashare_limit: int = 0,
+    log_sink: Callable[[str, str], None] | None = None,
 ) -> dict:
     """
     统一解析股票来源，返回 scope dict。
@@ -65,7 +69,7 @@ def resolve(
 
     不论哪种 source_type，不得在 wencai 失败时伪造 scope。
     """
-    ts = datetime.now().isoformat()
+    ts = iso_cst()
     error = None
     codes: list[str] = []
     status = "ok"
@@ -111,13 +115,21 @@ def resolve(
         try:
             if str(_SCRIPTS_DIR / "sources") not in sys.path:
                 sys.path.insert(0, str(_SCRIPTS_DIR / "sources"))
-            from wencai_source import run as _wencai_run  # type: ignore
+            import wencai_source as _wencai_source  # type: ignore
 
-            result = _wencai_run(
-                query=wencai_query or "",
-                limit=wencai_limit,
-                out=None,
-            )
+            old_sink = getattr(_wencai_source, "_log_sink", None)
+            if log_sink is not None:
+                _wencai_source._log_sink = (
+                    lambda level, msg: log_sink(level, f"  问财接口: {msg}")
+                )
+            try:
+                result = _wencai_source.run(
+                    query=wencai_query or "",
+                    limit=wencai_limit,
+                    out=None,
+                )
+            finally:
+                _wencai_source._log_sink = old_sink
             codes = result.get("scope_codes", [])
             status = result.get("status", "error")
             if status not in ("ok",):

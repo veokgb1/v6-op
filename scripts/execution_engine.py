@@ -24,6 +24,7 @@ import io
 import json
 import os
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -45,6 +46,8 @@ for _p in [str(_SCRIPTS_DIR), str(_SCRIPTS_DIR / "producers"),
            str(_SCRIPTS_DIR / "sources")]:
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
+from time_utils import iso_cst
 
 # ── V6 ExpressionRunner ───────────────────────────────────────────────
 _V6_SCRIPTS = _PROJECT_ROOT.parent / "v6" / "scripts"
@@ -71,6 +74,40 @@ _LOG_EVENTS: list[dict[str, str]] = []
 # v6op_server 在后台执行前设置此 sink，实现运行中事件实时推送到 /api/stream。
 _log_sink = None
 
+# ── 协作式中止标志 ────────────────────────────────────────────────────
+# v6op_server 收到 POST /api/abort 后调用 request_abort()。
+# execute() 在各步骤边界调用 _check_abort()，发现标志后抛出 AbortRequested。
+# 不强杀线程/进程，确保资源正确释放。
+_abort_requested: bool = False
+_abort_lock = threading.Lock()
+
+
+class AbortRequested(Exception):
+    """用户请求中止执行时从步骤边界抛出，由 _run_execution_background 捕获。"""
+
+
+def request_abort() -> None:
+    global _abort_requested
+    with _abort_lock:
+        _abort_requested = True
+
+
+def reset_abort() -> None:
+    global _abort_requested
+    with _abort_lock:
+        _abort_requested = False
+
+
+def is_abort_requested() -> bool:
+    with _abort_lock:
+        return _abort_requested
+
+
+def _check_abort() -> None:
+    """步骤边界中止检查：若已请求中止则抛出 AbortRequested。"""
+    if is_abort_requested():
+        raise AbortRequested("用户已请求中止执行")
+
 
 def _log(level: str, msg: str) -> None:
     color = {"INFO": GREEN, "WARN": YELLOW, "ERROR": RED, "HEAD": CYAN}.get(level, RESET)
@@ -87,6 +124,25 @@ def _log(level: str, msg: str) -> None:
 
 def get_log_events() -> list[dict[str, str]]:
     return list(_LOG_EVENTS)
+
+
+def _log_code_waterfall(
+    label: str,
+    codes: list[str],
+    *,
+    limit: int = 5000,
+) -> None:
+    """Emit V5-style per-code waterfall logs with a guardrail for huge scopes."""
+    total = len(codes)
+    if total == 0:
+        _log("INFO", f"  {label}: 空")
+        return
+    shown = codes[:limit]
+    _log("INFO", f"  {label}: 开始列出 {len(shown)}/{total} 只")
+    for idx, code in enumerate(shown, 1):
+        _log("INFO", f"    {label} {idx:04d}/{total:04d}: {code}")
+    if len(shown) < total:
+        _log("INFO", f"    {label}: 还有 {total - len(shown)} 只未展开")
 
 
 def _make_run_id() -> str:
@@ -235,6 +291,7 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
     """
     t_start = time.time()
     _LOG_EVENTS.clear()
+    reset_abort()   # 清除上次中止标志，确保新 run 干净启动
     run_id = _make_run_id()
     warnings: list[str] = []
     env_read = False
@@ -267,15 +324,30 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
         wencai_query=source_cfg.get("query"),
         wencai_limit=source_cfg.get("limit", 300),
         ashare_limit=source_cfg.get("limit", 0),
+        log_sink=_log,
     )
+    api_called = _source_api_called(source_type, scope.get("status", ""))
     scope_codes = scope.get("scope_codes", [])
     _log("INFO", f"  scope: {scope['status']}  count={scope['scope_count']}")
+    if scope_codes:
+        _log_code_waterfall("来源股票", scope_codes, limit=5000)
 
     if scope.get("status") not in ("ok",):
         warnings.append(f"来源解析警告: {scope.get('error')}")
         if not scope_codes:
             _log("ERROR", "scope 为空，无法继续执行")
-            return _error_result(run_id, "scope 为空", strategy, warnings, env_read)
+            return _error_result(
+                run_id,
+                "scope 为空",
+                strategy,
+                warnings,
+                env_read,
+                api_called,
+                scope=scope,
+                elapsed_seconds=round(time.time() - t_start, 2),
+            )
+
+    _check_abort()   # 步骤边界: 1→2
 
     # ── 2. 规划预热 ───────────────────────────────────────────────────
     _log("INFO", "步骤 2/8: 规划数据预热")
@@ -308,7 +380,7 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
         output_dir.mkdir(parents=True, exist_ok=True)
         aborted_result: dict[str, Any] = {
             "run_id": run_id,
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": iso_cst(),
             "elapsed_seconds": round(time.time() - t_start, 2),
             "status": "aborted",
             "aborted_reason": _aborted_msg,
@@ -329,16 +401,14 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
             "prefetch_triggered": False,
             "mask_cache_hits": 0,
             "mask_cache_misses": 0,
-            "api_called": False,
+            "api_called": api_called,
             "v5_modified": False,
             "v6_modified": False,
         }
-        exec_result_path = output_dir / "execution_result.json"
-        exec_result_path.write_text(
-            json.dumps(aborted_result, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        _log("INFO", f"  aborted execution_result.json → {exec_result_path}")
+        _write_result_artifacts(aborted_result)
         return aborted_result
+
+    _check_abort()   # 步骤边界: 2→3
 
     # ── 3. 真实预热（如有缺失缓存则自动调用 data_prefetch）─────────────
     _log("INFO", "步骤 3/8: 准备数据 — 检查缓存")
@@ -393,6 +463,8 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
     else:
         _log("INFO", "  缓存充足或无需 K 线，跳过预热")
 
+    _check_abort()   # 步骤边界: 3→4
+
     # data_time_max 用于 mask_cache 指纹（总纲第十章）
     # 无论 prefetch 是否触发，都从本地 .pkl 缓存实际读取最大日期，
     # 避免缓存充足时 data_date="" 导致错误复用旧 Mask。
@@ -424,6 +496,8 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
          f"  path_type={path_type}  "
          f"positive={graph['positive_skill_count']}  "
          f"negative={graph['negative_skill_count']}")
+
+    _check_abort()   # 步骤边界: 4→5
 
     # ── 5. 运行 Producer（路径感知）──────────────────────────────────────
     _log("INFO", "步骤 5/8: 运行 Producer")
@@ -492,6 +566,7 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
                     "signal_bars":   _sp("wave", "signal_bars",   20),
                     "swing_window":  _sp("wave", "swing_window",  10),
                     "fib_tolerance": _sp("wave", "fib_tolerance", 0.15),
+                    "min_wave_bars": _sp("wave", "min_wave_bars", 5),
                     "days":          _sp("wave", "days",          365),
                 }
             elif skill_id == "landmine":
@@ -518,6 +593,11 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
                      f"    {skill_id}: mask_cache_hit=true  "
                      f"hit={_cached.get('hit_count', 0)}  "
                      f"fp={_fp[:10]}…")
+                _log_code_waterfall(
+                    f"{skill_id} 命中明细",
+                    _cached.get("hit_codes", []),
+                    limit=500,
+                )
                 return _cached
             # ── cache miss: 执行 producer ─────────────────────────────────
 
@@ -540,6 +620,11 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
                  f"    {skill_id}: hit={result.get('hit_count', 0)}  "
                  f"miss={result.get('miss_count', 0)}  "
                  f"{result['duration_seconds']}s  fp={_fp[:10]}…")
+            _log_code_waterfall(
+                f"{skill_id} 命中明细",
+                result.get("hit_codes", []),
+                limit=500,
+            )
             return result
 
         except Exception as exc:
@@ -583,6 +668,7 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
         current_scope = list(producer_scope)
 
         for skill_id in pos_skills:
+            _check_abort()   # 每个技能前检查中止
             if not current_scope:
                 _log("WARN", f"  上游已为空，跳过 {skill_id} 及后续正向技能")
                 sk = skill_registry_dict.get(skill_id, {})
@@ -627,6 +713,7 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
         # 阶段一：并线 AND（producer_scope）
         parallel_results: list[dict[str, Any]] = []
         for skill_id in parallel_pos:
+            _check_abort()
             result = _run_one(skill_id, producer_scope)
             if result:
                 parallel_results.append(result)
@@ -643,6 +730,7 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
         # 阶段二：顺序过滤（中间结果）
         current_scope = intermediate
         for skill_id in seq_pos:
+            _check_abort()
             if not current_scope:
                 _log("WARN", f"  混合路径中间结果为空，跳过 {skill_id}")
                 break
@@ -669,9 +757,12 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
             _log("INFO", "  路径=parallel_and  所有技能对全集并行运行")
 
         for skill_id in selected_skills:
+            _check_abort()
             result = _run_one(skill_id, producer_scope)
             if result:
                 producer_results.append(result)
+
+    _check_abort()   # 步骤边界: 5→6
 
     # ── 6. 自动生成 MaskExpression ────────────────────────────────────
     _log("INFO", "步骤 6/8: 生成表达式规格（报告用）")
@@ -735,11 +826,15 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
 
     # prefetch_triggered=False 时历史 prefetch_report 不代表本次运行；
     # 清空避免把 scope 外旧失败代码写入当前 execution_result / run_report。
-    fetch_for_result = {**fetch, "prefetch_report": fetch.get("prefetch_report") if _prefetch_triggered else None}
+    fetch_for_result = {
+        **fetch,
+        "prefetch_report": fetch.get("prefetch_report") if _prefetch_triggered else None,
+        "data_time_max": _data_time_max,
+    }
 
     execution_result: dict[str, Any] = {
         "run_id": run_id,
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": iso_cst(),
         "elapsed_seconds": elapsed,
         "status": "completed",
         "strategy": strategy,
@@ -748,6 +843,7 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
         "params": params,
         "scope": scope,
         "fetch_plan": fetch_for_result,
+        "data_time_max": _data_time_max,
         "graph": graph,
         "producer_results": producer_results,
         "expression_spec": expression_spec,
@@ -763,7 +859,7 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
         "mask_cache_misses": sum(
             1 for r in producer_results if r.get("mask_cache_hit") is False
         ),
-        "api_called": False,
+        "api_called": api_called,
         "v5_modified": False,
         "v6_modified": False,
     }
@@ -803,18 +899,31 @@ def _error_result(
     strategy: dict[str, Any],
     warnings: list[str],
     env_read: bool,
+    api_called: bool = False,
+    *,
+    scope: dict[str, Any] | None = None,
+    elapsed_seconds: float | None = None,
 ) -> dict[str, Any]:
-    return {
+    error_result = {
         "run_id": run_id,
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": iso_cst(),
+        "elapsed_seconds": elapsed_seconds,
         "status": "error",
         "error": error,
         "strategy": strategy,
         "selected_skills": strategy.get("skills", []),
         "path_type": strategy.get("path_type", ""),
         "params": strategy.get("params", {}),
-        "scope": {},
-        "fetch_plan": {},
+        "scope": scope or {},
+        "fetch_plan": {
+            "readiness": "aborted",
+            "cached_codes": [],
+            "missing_codes": [],
+            "failed_codes": [],
+            "stale_codes": [],
+            "failure_rate": 0.0,
+            "prefetch_report": None,
+        },
         "graph": {},
         "producer_results": [],
         "expression_spec": {},
@@ -822,9 +931,47 @@ def _error_result(
         "final_hit_count": 0,
         "explanations": {},
         "warnings": warnings,
+        "prefetch_triggered": False,
+        "mask_cache_hits": 0,
+        "mask_cache_misses": 0,
         "env_read": env_read,
-        "api_called": False,
+        "api_called": api_called,
+        "v5_modified": False,
+        "v6_modified": False,
     }
+    _write_result_artifacts(error_result)
+    return error_result
+
+
+def _write_result_artifacts(execution_result: dict[str, Any]) -> None:
+    """Write execution_result and frontend run_report for terminal non-success runs."""
+    import run_report as run_report_mod
+
+    _out_root = _OUTPUT_ROOT or (_PROJECT_ROOT / "output")
+    output_dir = _out_root / "current"
+    archive_dir = _out_root / "runs" / execution_result["run_id"]
+    output_dir.mkdir(parents=True, exist_ok=True)
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    exec_result_json = json.dumps(execution_result, ensure_ascii=False, indent=2)
+    exec_result_path = output_dir / "execution_result.json"
+    exec_result_path.write_text(exec_result_json, encoding="utf-8")
+    (archive_dir / "execution_result.json").write_text(exec_result_json, encoding="utf-8")
+
+    report_paths = run_report_mod.generate(execution_result, output_dir)
+    run_report_mod.generate(execution_result, archive_dir)
+
+    _log("INFO", f"  execution_result.json → {exec_result_path}")
+    _log("INFO", f"  run_report.json → {report_paths['report_json_path']}")
+    _log("INFO", f"  run_report.md → {report_paths['report_md_path']}")
+    _log("INFO", f"  归档目录 → {archive_dir}")
+
+
+def _source_api_called(source_type: str, source_status: str) -> bool:
+    """Whether source resolution attempted an external stock-source API."""
+    if source_type != "wencai":
+        return False
+    return source_status not in {"key_missing", "blocked"}
 
 
 # ── Demo 策略 ─────────────────────────────────────────────────────────

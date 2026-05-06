@@ -10,11 +10,12 @@ Zigzag 摆动点 + Elliott Wave 5浪/ABC 结构，纯 pandas/numpy。
     --codes data/ashare_codes.txt \
     --limit 50 \
     --cache-dir var/cache/kline_daily \
+    --min-wave-bars 5 \
     --out output/current/wave_mask.json
 """
 from __future__ import annotations
 
-ALGO_VERSION = "1.0.0"
+ALGO_VERSION = "1.0.1"
 
 import argparse
 import hashlib
@@ -280,6 +281,7 @@ def run(
     signal_bars: int = 20,
     swing_window: int = 10,
     fib_tolerance: float = 0.15,
+    min_wave_bars: int = 5,
     days: int = 365,
     out: Path | None = None,
 ) -> dict:
@@ -289,15 +291,25 @@ def run(
     from ohlcv_provider import fetch_ohlcv
 
     t0 = time.time()
-    params = {"signal_bars": signal_bars, "swing_window": swing_window,
-              "fib_tolerance": fib_tolerance, "days": days}
+    params = {
+        "signal_bars": signal_bars,
+        "swing_window": swing_window,
+        "fib_tolerance": fib_tolerance,
+        "min_wave_bars": min_wave_bars,
+        "days": days,
+    }
 
     hit_codes:  list[str] = []
     miss_codes: list[str] = []
     evidence:   dict      = {}
 
-    _log("HEAD",
-         f"{'='*55}\nWaveProducer  swing={swing_window}  fib_tol={fib_tolerance}  bars={signal_bars}\n{'='*55}")
+    _log(
+        "HEAD",
+        f"{'='*55}\n"
+        f"WaveProducer  swing={swing_window}  fib_tol={fib_tolerance}  "
+        f"min_bars={min_wave_bars}  bars={signal_bars}\n"
+        f"{'='*55}",
+    )
 
     for i, code in enumerate(codes, 1):
         df = fetch_ohlcv(code, days=days, verbose=False)
@@ -306,7 +318,7 @@ def run(
             evidence[code] = {"status": "cache_miss", "adjust": "hfq"}
             continue
 
-        res = _analyze_one(code, df, signal_bars, swing_window, fib_tolerance)
+        res = _analyze_one(code, df, signal_bars, swing_window, fib_tolerance, min_wave_bars)
 
         if res.get("error"):
             miss_codes.append(code)
@@ -382,6 +394,7 @@ def main() -> None:
     parser.add_argument("--signal-bars",   type=int,   default=20)
     parser.add_argument("--swing-window",  type=int,   default=10)
     parser.add_argument("--fib-tolerance", type=float, default=0.15)
+    parser.add_argument("--min-wave-bars", type=int,   default=5)
     parser.add_argument("--days",          type=int,   default=365)
     args = parser.parse_args()
 
@@ -403,7 +416,7 @@ def main() -> None:
 
     run(codes=codes, cache_dir=cache_dir, signal_bars=args.signal_bars,
         swing_window=args.swing_window, fib_tolerance=args.fib_tolerance,
-        days=args.days, out=out)
+        min_wave_bars=args.min_wave_bars, days=args.days, out=out)
 
 
 if __name__ == "__main__":

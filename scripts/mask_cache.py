@@ -20,6 +20,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from time_utils import iso_cst
+
 # producer 模块路径映射（skill_id → 模块路径）
 _PRODUCER_MODULE_MAP: dict[str, str] = {
     "czsc":     "producers.czsc_producer",
@@ -118,7 +120,7 @@ def cache_put(
     cache_file = cd / f"{fingerprint}.json"
     # 不缓存 mask_cache_hit 字段（避免循环写入）
     to_save = {k: v for k, v in result.items() if k != "mask_cache_hit"}
-    to_save["_cached_at"] = datetime.now().isoformat(timespec="seconds")
+    to_save["_cached_at"] = iso_cst(timespec="seconds")
     cache_file.write_text(
         json.dumps(to_save, ensure_ascii=False, indent=2),
         encoding="utf-8",

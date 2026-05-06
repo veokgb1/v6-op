@@ -26,6 +26,8 @@ _PROJECT_ROOT = _SCRIPTS_DIR.parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
+from time_utils import iso_cst
+
 
 def _get_kline_skills() -> frozenset[str]:
     """
@@ -198,5 +200,5 @@ def plan(
         "cache_dir": str(cache_dir),
         "lookback_days": lookback_days,
         "kline_skills": kline_skills,
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": iso_cst(),
     }

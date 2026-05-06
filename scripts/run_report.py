@@ -12,9 +12,11 @@ run_report.py — V6OP 报告生成器
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import date as _date
 from pathlib import Path
 from typing import Any
+
+from time_utils import TIMEZONE_LABEL, format_cst, iso_cst, today_cst
 
 
 def _rel(path: Path, root: Path) -> str:
@@ -49,6 +51,18 @@ def generate(execution_result: dict[str, Any], output_dir: Path) -> dict[str, Pa
     warnings: list[str] = list(execution_result.get("warnings", []))
     warnings.extend(expression.get("warnings", []))
     warnings.extend(explanations.get("stale_warnings", []))
+    status = execution_result.get("status", "completed")
+    error = execution_result.get("error")
+    if status == "error" and error and error not in warnings:
+        warnings.append(str(error))
+    source_cfg = (execution_result.get("strategy") or {}).get("source", {})
+    report_generated_at = format_cst()
+    report_generated_at_iso = iso_cst()
+    fetch_data_time_max = (
+        fetch.get("data_time_max")
+        or (fetch.get("prefetch_report") or {}).get("data_time_max")
+        or execution_result.get("data_time_max")
+    )
 
     producer_summary: list[dict[str, Any]] = []
     for prod in producers:
@@ -71,7 +85,7 @@ def generate(execution_result: dict[str, Any], output_dir: Path) -> dict[str, Pa
             if ps["mode"] == "soft_filter":
                 ps["mode_note"] = "soft_filter（调试模式，非正式路径）"
         if prod.get("skill_id") == "wave":
-            ps["signal_note"] = "轻量版，no_top→放行 为弱信号"
+            ps["signal_note"] = "V5移植版，no_top→辅助放行"
         producer_summary.append(ps)
 
     data_coverage = {
@@ -82,17 +96,55 @@ def generate(execution_result: dict[str, Any], output_dir: Path) -> dict[str, Pa
         "stale_count": len(fetch.get("stale_codes", [])),
         "readiness": fetch.get("readiness", "unknown"),
         "failure_rate": fetch.get("failure_rate", 0.0),
+        "data_time_max": fetch_data_time_max,
+    }
+
+    source_type = scope.get("source_type")
+    source_limit = source_cfg.get("limit")
+    source_count = scope.get("scope_count", 0)
+    source_notes = {
+        "manual": "手动输入股票代码；不是外部接口返回。",
+        "all_a": "读取本地 data/ashare_codes.txt，再按扫描档位上限截取。",
+        "wencai": "调用问财接口取得股票池；档位是最多取多少条，不保证一定返回这么多。",
+    }
+    data_sources = {
+        "stock_source": {
+            "type": source_type,
+            "actual_count": source_count,
+            "limit": source_limit,
+            "status": scope.get("status"),
+            "note": source_notes.get(source_type, "未知股票来源"),
+        },
+        "kline": {
+            "database": "var/cache/kline_daily",
+            "analysis_mode": "Producer 阶段只读本地 K 线数据库",
+            "prefetch_provider": (
+                "baostock（本轮自动取数）"
+                if execution_result.get("prefetch_triggered", False)
+                else "本轮未访问外部行情源"
+            ),
+            "adjust": "hfq",
+            "data_bar_time": fetch_data_time_max or "unknown",
+            "source_publish_time": "unknown",
+            "source_publish_note": "当前 baostock / 本地缓存链路未提供逐条发布时间戳。",
+        },
     }
 
     run_report: dict[str, Any] = {
         "run_id": execution_result.get("run_id", ""),
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": report_generated_at,
+        "generated_at_iso": report_generated_at_iso,
+        "timezone": TIMEZONE_LABEL,
+        "elapsed_seconds": execution_result.get("elapsed_seconds"),
+        "status": status,
+        "error": error,
         "strategy": {
             "source": {
                 "type": scope.get("source_type"),
                 "scope_id": scope.get("scope_id"),
                 "scope_count": scope.get("scope_count"),
                 "status": scope.get("status"),
+                "limit": source_cfg.get("limit"),
             },
             "selected_skills": execution_result.get("selected_skills", []),
             "path_type": execution_result.get("path_type", ""),
@@ -111,11 +163,13 @@ def generate(execution_result: dict[str, Any], output_dir: Path) -> dict[str, Pa
         "failed_codes": fetch.get("failed_codes", []),
         "stale_codes": fetch.get("stale_codes", []),
         "data_coverage": data_coverage,
+        "data_sources": data_sources,
+        "data_time_max": fetch_data_time_max,
         "warnings": warnings,
         "prefetch_triggered": execution_result.get("prefetch_triggered", False),
         "mask_cache_hits":   execution_result.get("mask_cache_hits", 0),
         "mask_cache_misses": execution_result.get("mask_cache_misses", 0),
-        "api_called": False,
+        "api_called": execution_result.get("api_called", False),
         "env_read": execution_result.get("env_read", False),
         "v5_modified": False,
         "v6_modified": False,
@@ -165,15 +219,18 @@ def _build_markdown(report: dict[str, Any]) -> str:
     prefetch_hit = prefetch_rpt.get("cache_hit", 0)
     prefetch_bj = prefetch_rpt.get("bj_skipped", 0)
     prefetch_recovered = prefetch_rpt.get("recovered_count", 0)
-    data_time_max: str | None = prefetch_rpt.get("data_time_max")
+    data_time_max: str | None = (
+        prefetch_rpt.get("data_time_max")
+        or report.get("data_time_max")
+        or dc.get("data_time_max")
+    )
 
     # 计算数据新鲜度（stale_days = 距今自然日数）
     stale_days: int | None = None
     stale_note = ""
     if data_time_max:
         try:
-            from datetime import date as _date
-            delta = (_date.today() - _date.fromisoformat(data_time_max[:10])).days
+            delta = (today_cst() - _date.fromisoformat(data_time_max[:10])).days
             stale_days = delta
             if delta >= 2:
                 stale_note = f"⚠ 数据明显过旧（最新 {data_time_max[:10]}，距今 {delta} 自然日），请谨慎使用"
@@ -203,9 +260,11 @@ def _build_markdown(report: dict[str, Any]) -> str:
     }
 
     lines: list[str] = [
-        "# V6OP 操盘报告",
+        "# A股全链路量化扫描报告 V6OP",
         "",
+        "> V6OP 操盘报告",
         f"> 生成时间：{report['generated_at']}",
+        f"> 时间口径：中国时间 {report.get('timezone', TIMEZONE_LABEL)}",
         f"> run_id：{report.get('run_id', 'N/A')}",
         "",
         "---",
@@ -218,22 +277,38 @@ def _build_markdown(report: dict[str, Any]) -> str:
         f"- **股票池规模**：{source.get('scope_count', '—')} 只",
         f"- **最终命中**：{len(hits)} 只",
         f"- **数据就绪状态**：{_readiness_cn.get(dc['readiness'], dc['readiness'])}",
+        f"- **运行耗时**：{report.get('elapsed_seconds', '—')} 秒",
     ]
 
     if soft_filter:
         lines.append(f"- ⚠ **soft_filter 技能**：{', '.join(soft_filter)}（调试模式，非正式正向结论）")
     if weak_signal:
-        lines.append(f"- ⚠ **弱信号技能**：{', '.join(weak_signal)}（no_top 放行，不应视为强正向信号）")
+        lines.append(f"- ⚠ **辅助放行技能**：{', '.join(weak_signal)}（no_top 只是未发现5浪顶部，不应视为强买入信号）")
     lines.append("")
 
     # 二、股票来源
+    data_sources = report.get("data_sources", {})
+    stock_source = data_sources.get("stock_source", {})
+    kline_source = data_sources.get("kline", {})
+    source_limit = source.get("limit")
+    source_limit_text = "不限" if source_limit in (None, "", 0) else f"最多 {source_limit} 只"
     lines.extend([
         "## 二、股票来源",
         "",
         f"- **来源类型**：{_source_type_cn.get(source['type'], source['type'])}",
         f"- **scope_id**：{source.get('scope_id', '—')}",
-        f"- **总数**：{source.get('scope_count', '—')} 只",
+        f"- **实际来源数量**：{source.get('scope_count', '—')} 只",
+        f"- **档位 / 上限**：{source_limit_text}",
         f"- **状态**：{source.get('status', '—')}",
+        f"- **来源说明**：{stock_source.get('note', '—')}",
+        "",
+        "**行情/K线来源口径**：",
+        f"- K线数据库：`{kline_source.get('database', 'var/cache/kline_daily')}`",
+        f"- 本轮行情取数：{kline_source.get('prefetch_provider', '—')}",
+        f"- 分析阶段：{kline_source.get('analysis_mode', 'Producer 阶段只读本地 K 线数据库')}",
+        f"- 复权口径：{kline_source.get('adjust', 'hfq')}",
+        f"- 数据最后K线日期（data_bar_time）：{data_time_max or 'unknown'}",
+        f"- 数据源发布时间（source_publish_time）：unknown（{kline_source.get('source_publish_note', '行情源未提供发布时间戳')}）",
         "",
     ])
 
@@ -276,19 +351,20 @@ def _build_markdown(report: dict[str, Any]) -> str:
         "",
     ])
     if prefetch_triggered:
-        lines.append("**触发了自动预热**，访问了网络数据源（baostock / akshare / yfinance 之一）。")
+        lines.append("**触发了自动取数**：本轮访问 baostock，把缺少的日线写入本地 K 线数据库。")
         lines.append("")
         lines.extend([
             "| 指标 | 数值 |",
             "|---|---:|",
-            f"| scope 总数 | {dc['scope_count']} |",
-            f"| 命中本地缓存 | {prefetch_hit} |",
-            f"| 新拉取成功 | {prefetch_fetched} |",
-            f"| 补拉恢复 | {prefetch_recovered} |",
-            f"| 拉取失败（最终） | {prefetch_failed} |",
-            f"| Stale 降级使用 | {prefetch_stale} |",
+            f"| 来源总数 | {dc['scope_count']} |",
+            f"| 本地已有K线 | {prefetch_hit} |",
+            f"| 本次新取K线 | {prefetch_fetched} |",
+            f"| 备用源补回 | {prefetch_recovered} |",
+            f"| 取数失败 | {prefetch_failed} |",
+            f"| 使用旧K线 | {prefetch_stale} |",
             f"| BJ（北交所）跳过 | {prefetch_bj} |",
             f"| K线数据最新日期 | {data_time_max or '—'} |",
+            "| 数据源发布时间 | unknown（baostock 未提供逐条发布时间戳） |",
             f"| 数据延迟天数 | {stale_days if stale_days is not None else '—'} 自然日 |",
             "",
         ])
@@ -296,17 +372,23 @@ def _build_markdown(report: dict[str, Any]) -> str:
             lines.append(f"> {stale_note}")
             lines.append("")
     else:
-        lines.append("**未触发本次预热**，使用已有缓存，未访问 baostock / akshare / yfinance。")
+        lines.append("**未触发本次预热 / 取数**：本轮不用重新拉行情，直接使用本地 K 线数据库；没有访问 baostock / akshare / yfinance。")
         lines.extend([
             "",
             "| 指标 | 数值 |",
             "|---|---:|",
-            f"| scope 总数 | {dc['scope_count']} |",
-            f"| 有缓存 | {dc['cached_count']} |",
-            f"| 缓存缺失 | {dc['missing_count']} |",
+            f"| 来源总数 | {dc['scope_count']} |",
+            f"| 本地K线可用 | {dc['cached_count']} |",
+            f"| 缺K线数据 | {dc['missing_count']} |",
+            f"| K线数据最新日期 | {data_time_max or '—'} |",
+            "| 数据源发布时间 | unknown |",
+            f"| 数据延迟天数 | {stale_days if stale_days is not None else '—'} 自然日 |",
             f"| 就绪状态 | {dc['readiness']} |",
             "",
         ])
+        if stale_note:
+            lines.append(f"> {stale_note}")
+            lines.append("")
 
     # 六、本地分析阶段
     _mc_hits   = report.get("mask_cache_hits", 0)
@@ -314,18 +396,18 @@ def _build_markdown(report: dict[str, Any]) -> str:
     lines.extend([
         "## 六、本地分析阶段",
         "",
-        "Producer 以 **READ_CACHE_ONLY** 模式运行，不访问 baostock / akshare / yfinance。",
-        "缓存缺失时返回 miss，不触发网络请求。",
+        "Producer 只读取 **本地K线数据**，不访问 baostock / akshare / yfinance。",
+        "本地K线缺失时返回 miss，不触发网络请求。",
         "",
         "| 指标 | 数值 |",
         "|---|---:|",
-        f"| 有缓存可分析 | {dc['cached_count']} 只 |",
-        f"| 缺失缓存（miss） | {dc['missing_count']} 只 |",
-        f"| 已知失败 | {dc['failed_count']} 只 |",
-        f"| Stale 数据 | {dc['stale_count']} 只 |",
-        f"| 失败率 | {dc['failure_rate']:.1%} |",
-        f"| Mask缓存命中 | {_mc_hits} |",
-        f"| Mask缓存未中 | {_mc_misses} |",
+        f"| 本地K线可分析 | {dc['cached_count']} 只 |",
+        f"| 缺K线数据（miss） | {dc['missing_count']} 只 |",
+        f"| 取数失败 | {dc['failed_count']} 只 |",
+        f"| 旧K线数据 | {dc['stale_count']} 只 |",
+        f"| 取数失败率 | {dc['failure_rate']:.1%} |",
+        f"| 技能结果复用命中 | {_mc_hits} |",
+        f"| 技能结果重新计算 | {_mc_misses} |",
         "",
     ])
 
@@ -391,9 +473,9 @@ def _build_markdown(report: dict[str, Any]) -> str:
             lines.append(f"- **{ps['skill_name']}**：命中（排除）{ps['hit_count']} 只，未触发 {ps['miss_count']} 只")
     lines.append("")
 
-    # 十、失败代码 / 旧缓存 / 未分析代码
+    # 十、失败代码 / 旧K线 / 未分析代码
     lines.extend([
-        "## 十、失败代码 / 旧缓存 / 未分析代码",
+        "## 十、失败代码 / 旧K线 / 未分析代码",
         "",
     ])
     if failed:
@@ -403,13 +485,13 @@ def _build_markdown(report: dict[str, Any]) -> str:
     else:
         lines.append("- 无失败代码。")
     if stale:
-        lines.append(f"**Stale 数据（{len(stale)} 只，使用了旧缓存）**：")
+        lines.append(f"**旧K线数据（{len(stale)} 只，使用了本地旧K线）**：")
         lines.append(", ".join(stale[:50]) + ("..." if len(stale) > 50 else ""))
         lines.append("")
     else:
-        lines.append("- 无 Stale 数据。")
+        lines.append("- 无旧K线数据。")
     if dc.get("missing_count", 0) > 0:
-        lines.append(f"- **缓存缺失（{dc['missing_count']} 只）**：这些代码在本地分析阶段返回 miss，未被纳入命中计算。")
+        lines.append(f"- **缺K线数据（{dc['missing_count']} 只）**：这些代码在本地分析阶段返回 miss，未被纳入命中计算。")
     lines.append("")
 
     # 十一、风险与边界声明
@@ -427,12 +509,12 @@ def _build_markdown(report: dict[str, Any]) -> str:
         "- 未修改 V5.10 / V6。",
         f"- 是否读取 .env：{'是' if report.get('env_read') else '否（未读取）'}",
         "- 未伪造 scope。",
-        "- 所有 Producer 在 READ_CACHE_ONLY 模式下运行，结果基于本地缓存数据。",
+        "- 所有 Producer 只读本地K线数据，结果不包含本轮实时网络取数。",
     ])
     if soft_filter:
         lines.append(f"- SMC soft_filter 模式已标注（{', '.join(soft_filter)}），结果为软过滤/透传，非 strict 正向命中。")
     if weak_signal:
-        lines.append(f"- 波浪弱信号已标注（{', '.join(weak_signal)}），no_top 放行不应视为强正向信号。")
+        lines.append(f"- 波浪辅助放行已标注（{', '.join(weak_signal)}），no_top 放行不应视为强买入信号。")
     lines.append("")
 
     # 十二、运行产物路径
@@ -441,6 +523,7 @@ def _build_markdown(report: dict[str, Any]) -> str:
         "",
         "- **当前报告 JSON**：`output/current/run_report.json`",
         "- **当前报告 MD**：`output/current/run_report.md`",
+        "- **人工可读报告格式**：Markdown（`.md`）；JSON 仅用于前端/程序读取。",
         f"- **本次归档目录**：`output/runs/{report.get('run_id', 'N/A')}/`",
         "",
         "---",

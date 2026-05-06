@@ -39,16 +39,19 @@ for _p in [str(_SCRIPTS_DIR), str(_SCRIPTS_DIR / "producers"),
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
+from time_utils import iso_cst
+
 # ── 全局运行状态 ──────────────────────────────────────────────────────
 _run_state: dict = {
     "run_id": None,
-    "status": "idle",    # idle / running / completed / error
+    "status": "idle",    # idle / running / completed / error / aborted
     "started_at": None,
     "completed_at": None,
     "error": None,
     "final_hit_count": 0,
     "events": [],        # 轮询事件列表（/api/stream 用）
     "event_count": 0,    # 当前 run 的累计事件数，供 ?since=N 游标使用
+    "abort_requested": False,
 }
 _state_lock = threading.Lock()
 _DEFAULT_PORT = 8876
@@ -59,7 +62,7 @@ def _push_event(level: str, msg: str) -> None:
         event_index = int(_run_state.get("event_count", 0))
         _run_state["events"].append({
             "index": event_index,
-            "ts": datetime.now().isoformat(),
+            "ts": iso_cst(),
             "level": level,
             "msg": msg,
         })
@@ -82,19 +85,25 @@ def _run_execution_background(strategy: dict) -> None:
 
         with _state_lock:
             _run_state["status"] = result.get("status", "completed")
-            _run_state["completed_at"] = datetime.now().isoformat()
+            _run_state["completed_at"] = iso_cst()
             _run_state["final_hit_count"] = result.get("final_hit_count", 0)
             final_status = _run_state["status"]
             final_hits = _run_state["final_hit_count"]
         _push_event("INFO",
                     f"执行完成 status={final_status} hits={final_hits}")
 
+    except execution_engine.AbortRequested:
+        with _state_lock:
+            _run_state["status"] = "aborted"
+            _run_state["completed_at"] = iso_cst()
+        _push_event("WARN", "执行已中止（用户请求）")
+
     except Exception as exc:
         tb = traceback.format_exc()
         with _state_lock:
             _run_state["status"] = "error"
             _run_state["error"] = str(exc)
-            _run_state["completed_at"] = datetime.now().isoformat()
+            _run_state["completed_at"] = iso_cst()
         _push_event("ERROR", f"执行异常: {exc}")
         print(f"[v6op_server] 执行异常:\n{tb}", file=sys.stderr)
     finally:
@@ -134,7 +143,7 @@ def _health_data() -> dict:
         "key_files": key_files,
         "dot_env_exists": env_exists,
         "dot_env_var_names": env_vars_present,  # 只含变量名，不含值
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": iso_cst(),
     }
 
 
@@ -317,12 +326,13 @@ class V6OPHandler(BaseHTTPRequestHandler):
                 _run_state.update({
                     "run_id": run_id,
                     "status": "pending",
-                    "started_at": datetime.now().isoformat(),
+                    "started_at": iso_cst(),
                     "completed_at": None,
                     "error": None,
                     "final_hit_count": 0,
                     "events": [],
                     "event_count": 0,
+                    "abort_requested": False,
                 })
             # _push_event 也使用 _state_lock，必须在 with 块外调用以避免重入死锁
             _push_event("INFO", f"收到策略请求 run_id={run_id}")
@@ -344,6 +354,59 @@ class V6OPHandler(BaseHTTPRequestHandler):
                     "result": "/api/result",
                 },
             })
+
+        elif path == "/api/abort":
+            with _state_lock:
+                current_status = _run_state["status"]
+                if current_status not in ("running", "pending"):
+                    self._send_json(200, {
+                        "message": f"当前状态 {current_status}，无正在运行的任务",
+                        "aborted": False,
+                    })
+                    return
+                _run_state["abort_requested"] = True
+
+            # 通知 execution_engine 设置中止标志
+            try:
+                import execution_engine as _ee
+                _ee.request_abort()
+            except Exception:
+                pass
+
+            _push_event("WARN", "收到中止请求，将在下一步骤边界停止")
+            self._send_json(200, {
+                "message": "中止请求已发送，执行将在下一个步骤边界停止",
+                "aborted": True,
+            })
+
+        elif path == "/api/scan_sectors":
+            body = self._read_body()
+            try:
+                req = json.loads(body.decode("utf-8")) if body else {}
+            except json.JSONDecodeError as exc:
+                self._send_json(400, {"error": f"JSON 解析失败: {exc}", "sectors": []})
+                return
+
+            sector_query = str(req.get("sector_query") or "").strip()
+            try:
+                top_n = max(1, int(req.get("sector_top_n") or 10))
+            except (TypeError, ValueError):
+                top_n = 10
+
+            try:
+                import sector_scan_source as _sss  # type: ignore
+                result = _sss.scan(sector_query=sector_query, top_n=top_n)
+                if result.get("error"):
+                    self._send_json(400, result)
+                else:
+                    self._send_json(200, result)
+            except Exception as exc:
+                self._send_json(500, {
+                    "sectors": [],
+                    "count": 0,
+                    "query": sector_query,
+                    "error": f"板块扫描模块异常: {exc}",
+                })
 
         else:
             self._send_json(404, {"error": f"未知路径: {path}"})

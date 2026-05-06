@@ -100,6 +100,24 @@ class TestWencaiSource:
         result = ws.run(query="近20日涨幅小于10%", limit=5)
         assert result["scope_codes"] == []
 
+    def test_query_wencai_paginates_to_limit(self, monkeypatch):
+        import types
+        import wencai_source as ws
+
+        calls = []
+
+        def fake_get(query, query_type, perpage, page):
+            calls.append({"perpage": perpage, "page": page})
+            start = (page - 1) * perpage
+            return [{"股票代码": f"{start + i:06d}.SZ"} for i in range(perpage)]
+
+        monkeypatch.setitem(sys.modules, "pywencai", types.SimpleNamespace(get=fake_get))
+        codes, status = ws._query_wencai("测试", "fake-key", 250)
+        assert status == "ok"
+        assert len(codes) == 250
+        assert [c["page"] for c in calls] == [1, 2, 3]
+        assert all(c["perpage"] == 100 for c in calls)
+
 
 # ════════════════════════════════════════════════════════════════════
 #  3. SMCProducer 测试

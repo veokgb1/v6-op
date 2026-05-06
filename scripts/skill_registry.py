@@ -88,6 +88,7 @@ SKILL_REGISTRY: list[dict[str, Any]] = [
             "signal_bars":   {"type": "int",   "default": 20,   "desc": "近 N 根检查窗口"},
             "swing_window":  {"type": "int",   "default": 10,   "desc": "Swing 检测半径"},
             "fib_tolerance": {"type": "float", "default": 0.15, "desc": "Fibonacci 容差"},
+            "min_wave_bars": {"type": "int",   "default": 5,    "desc": "每浪最少 K 线数"},
             "days":          {"type": "int",   "default": 365,  "desc": "回看天数"},
         },
         "notes": "Elliott Wave + Zigzag，纯 pandas/numpy，仅读本地缓存",

@@ -8,7 +8,7 @@ expression_auto_generator.py — V6OP MaskExpression 自动生成器
 - positive 技能默认 AND / K_OF_N（取决于 path_type）
 - negative 技能接入 EXCLUDE
 - SMC soft_filter 结果如果被选中，expression metadata 中标注 mode=soft_filter
-- Wave weak_signal 如果被选中，标注 signal_strength=weak
+- Wave no_top 如果被选中，内部仍写入 weak_signal_skills，界面解释为“辅助放行”
 
 不让用户手写表达式。
 """
@@ -41,7 +41,7 @@ def _detect_smc_soft_filter(result: dict[str, Any]) -> bool:
 
 
 def _detect_wave_weak_signal(result: dict[str, Any]) -> bool:
-    """检查 Wave 结果是否包含 no_top 弱信号命中。"""
+    """检查 Wave 结果是否包含 no_top 辅助放行命中。"""
     if result.get("skill_id") != "wave":
         return False
     evidence = result.get("evidence", {})
@@ -96,8 +96,8 @@ def generate(
                 result.get("skill_id", "wave")
             )
             warnings.append(
-                "WaveProducer 包含 no_top 弱信号命中（无5浪顶→放行），"
-                "已标注 signal_strength=weak；不应视为强正向信号。"
+                "WaveProducer 包含 no_top 辅助放行（无5浪顶→放行），"
+                "已标注为辅助信号；不应视为强买入信号。"
             )
 
     if not positive_results:

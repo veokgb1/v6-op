@@ -6,8 +6,8 @@ explanation_builder.py — V6OP 中文解释构建器
 - 命中哪些技能
 - 每个技能的中文理由
 - 是否用了后复权数据
-- 是否受 SMC soft_filter / Wave weak_signal 影响
-- 是否有数据缺失或 stale 风险
+- 是否受 SMC soft_filter / Wave 辅助放行影响
+- 是否有数据缺失或旧K线风险
 
 失败 / 未分析股票单列，不混进命中列表。
 """
@@ -88,22 +88,22 @@ def _wave_reason(evidence: dict[str, Any], metadata: dict[str, Any]) -> str:
     last_signal = evidence.get("last_signal", "")
     all_signals_count = evidence.get("all_signals_count", 0)
 
-    weak_signal_skills = metadata.get("weak_signal_skills", [])
-    is_weak = "wave" in weak_signal_skills or verdict == "no_top"
+    auxiliary_signal_skills = metadata.get("weak_signal_skills", [])
+    is_auxiliary = "wave" in auxiliary_signal_skills or verdict == "no_top"
 
     parts: list[str] = []
     if verdict == "abc_bottom":
         parts.append("检测到 ABC 底部形态（椭圆底）")
     elif verdict == "no_top":
-        parts.append("未检测到5浪顶部，放行（弱信号）")
+        parts.append("未检测到5浪顶部，辅助放行")
     elif verdict:
         parts.append(f"波浪判断：{verdict}")
     if last_signal:
         parts.append(f"最近信号：{last_signal}")
     if all_signals_count:
         parts.append(f"信号总数 {all_signals_count}")
-    if is_weak:
-        parts.append("（弱信号，不应视为强正向结论）")
+    if is_auxiliary:
+        parts.append("（辅助放行，不应视为强买入结论）")
 
     return "；".join(parts) if parts else "波浪分析通过"
 
@@ -168,7 +168,7 @@ def build(
         r.get("skill_id", ""): r for r in producer_results
     }
 
-    # soft_filter / weak_signal 标注
+    # soft_filter / auxiliary signal 标注
     soft_filter_skills = set(expr_metadata.get("soft_filter_skills", []))
     weak_signal_skills = set(expr_metadata.get("weak_signal_skills", []))
 
@@ -214,8 +214,8 @@ def build(
 
         # 数据质量警告
         if code in stale_set:
-            data_quality_issues.append("数据可能 stale（缓存过旧），结果仅供参考")
-            stale_warnings.append(f"{code}: 数据 stale")
+            data_quality_issues.append("可能使用旧K线数据，结果仅供参考")
+            stale_warnings.append(f"{code}: 使用旧K线数据")
 
         explanation_parts: list[str] = []
         if skill_hits:
@@ -228,7 +228,7 @@ def build(
         if has_soft_filter:
             explanation_parts.append("⚠ SMC soft_filter 软过滤模式")
         if has_weak_signal:
-            explanation_parts.append("⚠ Wave 弱信号（no_top）")
+            explanation_parts.append("⚠ 波浪辅助放行（no_top）")
         if data_quality_issues:
             explanation_parts.append("⚠ " + "；".join(data_quality_issues))
 

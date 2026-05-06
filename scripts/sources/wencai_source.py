@@ -31,6 +31,8 @@ _PROJECT_ROOT = _SCRIPTS_DIR.parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
+from time_utils import iso_cst
+
 # ── 颜色日志 ──────────────────────────────────────────────────────────
 GREEN  = "\033[92m"
 YELLOW = "\033[93m"
@@ -38,11 +40,19 @@ RED    = "\033[91m"
 CYAN   = "\033[96m"
 RESET  = "\033[0m"
 
+# Optional realtime sink installed by source_resolver/execution_engine.
+_log_sink = None
+
 
 def _log(level: str, msg: str) -> None:
     color = {"INFO": GREEN, "WARN": YELLOW, "ERROR": RED, "HEAD": CYAN}.get(level, RESET)
     ts = datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}]{color}[WencaiSource][{level}]{RESET} {msg}", flush=True)
+    if callable(_log_sink):
+        try:
+            _log_sink(level, msg)
+        except Exception:
+            pass
 
 
 # ── .env 加载 ─────────────────────────────────────────────────────────
@@ -127,30 +137,55 @@ def _query_wencai(query: str, api_key: str, limit: int) -> tuple[list[str], str]
 
     try:
         _log("INFO", f"问财查询: {query[:80]}  limit={limit}")
-        result = pywencai.get(
-            query=query,
-            query_type="stock",
-            perpage=min(limit, 100),
-            page=1,
-        )
+        perpage = min(max(int(limit), 1), 100)
+        max_pages = max(1, (int(limit) + perpage - 1) // perpage)
+        all_rows: list[dict] = []
+        codes: list[str] = []
+        seen: set[str] = set()
 
-        if result is None:
-            _log("WARN", "问财返回 None，视为空结果")
-            return [], "empty_result"
+        for page in range(1, max_pages + 1):
+            result = pywencai.get(
+                query=query,
+                query_type="stock",
+                perpage=perpage,
+                page=page,
+            )
 
-        rows: list[dict] = []
-        if isinstance(result, list):
-            rows = result
-        elif hasattr(result, "to_dict"):
-            rows = result.to_dict(orient="records")
-        elif isinstance(result, dict):
-            for v in result.values():
-                if isinstance(v, list):
-                    rows = v
-                    break
+            if result is None:
+                if page == 1:
+                    _log("WARN", "问财返回 None，视为空结果")
+                    return [], "empty_result"
+                break
 
-        codes = _extract_codes(rows)[:limit]
-        _log("INFO", f"问财返回 {len(rows)} 行，提取到 {len(codes)} 只代码")
+            rows: list[dict] = []
+            if isinstance(result, list):
+                rows = result
+            elif hasattr(result, "to_dict"):
+                rows = result.to_dict(orient="records")
+            elif isinstance(result, dict):
+                for v in result.values():
+                    if isinstance(v, list):
+                        rows = v
+                        break
+
+            if not rows:
+                break
+
+            all_rows.extend(rows)
+            before = len(codes)
+            for code in _extract_codes(rows):
+                if code not in seen:
+                    seen.add(code)
+                    codes.append(code)
+                    if len(codes) >= limit:
+                        break
+
+            _log("INFO", f"问财第 {page} 页返回 {len(rows)} 行，累计 {len(codes)} 只")
+            if len(codes) >= limit or len(codes) == before:
+                break
+
+        codes = codes[:limit]
+        _log("INFO", f"问财累计返回 {len(all_rows)} 行，提取到 {len(codes)} 只代码")
 
         if not codes:
             _log("WARN", "问财返回 0 只股票代码（empty_result）")
@@ -190,7 +225,7 @@ def _make_scope_json(
         "scope_count":   len(codes),
         "limit":         limit,
         "data_mode":     "live_api" if status == "ok" else status,
-        "generated_at":  datetime.now().isoformat(),
+        "generated_at":  iso_cst(),
         "elapsed_s":     round(elapsed, 2),
         "note":          {
             "ok":           "",

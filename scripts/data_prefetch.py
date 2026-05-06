@@ -26,6 +26,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from time_utils import iso_cst
+
 # ── 项目根 & 路径 ──────────────────────────────────────────────────────
 _SCRIPTS_DIR = Path(__file__).parent.resolve()
 _PROJECT_ROOT = _SCRIPTS_DIR.parent
@@ -364,7 +366,7 @@ def _worker_main() -> None:
             "prefetch_run_id": prefetch_run_id,
             "total_codes": len(codes),
             "kline_days": days,
-            "run_at": datetime.now().isoformat(),
+            "run_at": iso_cst(),
             **stats,
         }, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -445,7 +447,7 @@ def run_prefetch(
         "data_time_max":    stats.get("data_time_max"),
         "duration_seconds": stats.get("duration_seconds", 0),
         "cache_dir": str(cache_dir),
-        "run_at": datetime.now().isoformat(),
+        "run_at": iso_cst(),
     }
     (report_dir / "prefetch_report.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -535,7 +537,7 @@ def main() -> None:
         "data_time_max":    stats.get("data_time_max"),
         "duration_seconds": stats.get("duration_seconds", 0),
         "cache_dir": str(cache_dir),
-        "run_at": datetime.now().isoformat(),
+        "run_at": iso_cst(),
     }
 
     report_dir.mkdir(parents=True, exist_ok=True)

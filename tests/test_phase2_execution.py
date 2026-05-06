@@ -517,6 +517,76 @@ class TestExecutionEngineDemo:
         # manual 来源不访问任何真实 API
         assert result.get("api_called") is False
 
+    def test_wencai_api_called_flag_truth_table(self):
+        from execution_engine import _source_api_called
+        assert _source_api_called("manual", "ok") is False
+        assert _source_api_called("all_a", "ok") is False
+        assert _source_api_called("wencai", "ok") is True
+        assert _source_api_called("wencai", "empty_result") is True
+        assert _source_api_called("wencai", "network_error") is True
+        assert _source_api_called("wencai", "auth_failed") is True
+        assert _source_api_called("wencai", "key_missing") is False
+        assert _source_api_called("wencai", "blocked") is False
+
+    def test_empty_scope_writes_fresh_error_report(self, monkeypatch):
+        import json
+        import execution_engine
+        import source_resolver
+        from execution_engine import execute
+
+        def fake_resolve(*args, **kwargs):
+            return {
+                "scope_id": "empty_test",
+                "source_type": "wencai",
+                "scope_codes": [],
+                "scope_count": 0,
+                "status": "empty_result",
+                "error": "问财没有返回股票",
+                "generated_at": "2026-05-06T00:00:00",
+            }
+
+        monkeypatch.setattr(source_resolver, "resolve", fake_resolve)
+
+        result = execute({
+            "source": {
+                "type": "wencai",
+                "query": "测试空结果",
+                "limit": 5000,
+            },
+            "skills": ["kline"],
+            "path_type": "parallel_and",
+            "params": {},
+        })
+
+        assert result["status"] == "error"
+        out_root = execution_engine._OUTPUT_ROOT or (_PROJECT_ROOT / "output")
+        report_path = out_root / "current" / "run_report.json"
+        exec_path = out_root / "current" / "execution_result.json"
+        assert report_path.exists()
+        assert exec_path.exists()
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        assert report["run_id"] == result["run_id"]
+        assert report["status"] == "error"
+        assert report["strategy"]["source"]["status"] == "empty_result"
+        assert report["strategy"]["source"]["limit"] == 5000
+        assert report["data_coverage"]["scope_count"] == 0
+
+    def test_execute_logs_source_waterfall(self):
+        import execution_engine
+        from execution_engine import execute
+
+        execute({
+            "source": {"type": "manual", "codes": ["000001.SZ", "000002.SZ"]},
+            "skills": ["landmine"],
+            "path_type": "parallel_and",
+            "params": {},
+        })
+
+        messages = [event["msg"] for event in execution_engine.get_log_events()]
+        assert any("来源股票: 开始列出 2/2 只" in msg for msg in messages)
+        assert any("来源股票 0001/0002: 000001.SZ" in msg for msg in messages)
+        assert any("来源股票 0002/0002: 000002.SZ" in msg for msg in messages)
+
     def test_execute_producer_identity_complete(self):
         from execution_engine import execute, DEMO_STRATEGIES
         result = execute(DEMO_STRATEGIES["manual"])
@@ -601,6 +671,47 @@ class TestRunReport:
         assert "五、数据准备阶段" in content
         assert "七、命中股票列表" in content
         assert "十一、风险与边界声明" in content
+
+    def test_report_uses_china_time_and_v5_source_contract(self, tmp_path):
+        import run_report
+        dummy_result = {
+            "run_id": "test_run",
+            "generated_at": "2026-05-05T00:00:00",
+            "elapsed_seconds": 1.2,
+            "status": "completed",
+            "strategy": {"source": {"type": "wencai", "limit": 5000}, "skills": ["kline"], "path_type": "parallel_and", "params": {}},
+            "selected_skills": ["kline"],
+            "path_type": "parallel_and",
+            "params": {},
+            "scope": {"source_type": "wencai", "scope_id": "x", "scope_count": 45, "status": "ok"},
+            "fetch_plan": {
+                "prefetch_report": None,
+                "cached_codes": ["000001.SZ"],
+                "missing_codes": [],
+                "failed_codes": [],
+                "stale_codes": [],
+                "readiness": "ready",
+                "failure_rate": 0.0,
+                "data_time_max": "2026-04-30",
+            },
+            "producer_results": [],
+            "expression_spec": {"steps": [], "metadata": {}, "warnings": []},
+            "final_hit_codes": [],
+            "explanations": {"hits": [], "stale_warnings": []},
+            "warnings": [],
+            "prefetch_triggered": False,
+            "env_read": True,
+        }
+        paths = run_report.generate(dummy_result, tmp_path)
+        report = json.loads(paths["report_json_path"].read_text(encoding="utf-8"))
+        md = paths["report_md_path"].read_text(encoding="utf-8")
+        assert report["generated_at"].endswith("CST")
+        assert report["timezone"] == "Asia/Shanghai (CST, UTC+08:00)"
+        assert report["data_sources"]["stock_source"]["actual_count"] == 45
+        assert "source_publish_time" in md
+        assert "unknown" in md
+        assert "人工可读报告格式" in md
+        assert "London" not in md and "UTC" not in md.replace("UTC+08:00", "")
 
     def test_run_report_records_params_used(self, tmp_path):
         import run_report
@@ -1512,9 +1623,9 @@ class TestV6OP008ExplanationBuilderKeyFix:
             expr_metadata={"weak_signal_skills": ["wave"]},
         )
         reason = result["hits"][0]["skill_hits"][0]["reason_cn"]
-        assert "5浪" in reason or "no_top" in reason or "弱信号" in reason, \
+        assert "5浪" in reason or "no_top" in reason or "辅助" in reason, \
             f"wave no_top 应提示未检测到5浪顶部: {reason}"
-        assert "弱信号" in reason, f"no_top 应标注弱信号: {reason}"
+        assert "辅助" in reason, f"no_top 应标注辅助放行: {reason}"
 
     def test_wave_abc_bottom_verdict(self):
         """wave verdict=abc_bottom 应输出 ABC 底部字样。"""

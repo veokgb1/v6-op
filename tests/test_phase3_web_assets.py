@@ -75,6 +75,14 @@ class TestIndexHtmlContent:
     def test_has_readiness_box_id(self, html):
         assert 'id="readiness-box"' in html, "index.html 缺少 id=readiness-box"
 
+    def test_has_data_marker_help_buttons(self, html):
+        assert 'data-help="data-markers"' in html
+        assert 'data-help="fetch-record"' in html
+
+    def test_has_stress_guide(self, html):
+        assert "压力测试怎么跑" in html
+        assert 'data-help="stress-guide"' in html
+
     def test_has_source_type_radios(self, html):
         assert 'name="source-type"' in html, "index.html 缺少 source-type 单选"
 
@@ -119,6 +127,32 @@ class TestAppJsContent:
     def test_renders_readiness(self, js):
         assert "readiness" in js, "app.js 未处理 readiness 字段"
 
+    def test_renders_storage_markers(self, js):
+        assert "来源快照" in js, "app.js 缺少一星来源快照标记"
+        assert "K线数据库" in js, "app.js 缺少二星K线数据库标记"
+        assert "技能结果库" in js, "app.js 缺少三星技能结果库标记"
+        assert "问财实际返回" in js, "app.js 应说明问财实际返回数和档位上限"
+        assert "本地A股取用" in js, "app.js 应说明全A实际取用数和档位上限"
+
+    def test_has_inline_help_popover(self, js):
+        assert "HELP_TEXT" in js, "app.js 缺少内置帮助文案"
+        assert "showHelp" in js, "app.js 缺少帮助弹窗函数"
+        assert "helpButton" in js, "app.js 缺少小 i 帮助按钮渲染"
+
+    def test_has_skill_param_help_text(self, js):
+        for key in [
+            "param-czsc-signal",
+            "param-kline-signal",
+            "param-kline-body",
+            "param-kline-shadow",
+            "param-smc-mode",
+            "param-wave-swing",
+            "param-wave-fib",
+            "param-wave-min-bars",
+            "stress-guide",
+        ]:
+            assert key in js, f"app.js 缺少参数帮助 {key}"
+
     def test_marks_aborted(self, js):
         assert "aborted" in js, "app.js 未标注 aborted 风险"
 
@@ -126,7 +160,7 @@ class TestAppJsContent:
         assert "soft_filter" in js, "app.js 未标注 SMC soft_filter"
 
     def test_marks_weak_signal(self, js):
-        assert "weak_signal" in js or "isWeak" in js, "app.js 未标注 Wave 弱信号"
+        assert "weak_signal" in js or "isWeak" in js, "app.js 未标注 Wave 辅助放行"
 
     def test_has_html_escape(self, js):
         assert "esc(" in js or "escape" in js.lower(), "app.js 缺少 HTML 转义函数"
@@ -137,13 +171,18 @@ class TestAppJsContent:
     def test_has_skill_params(self, js):
         assert "SKILL_PARAMS" in js, "app.js 缺少 SKILL_PARAMS 技能参数定义"
         for key in ["swing_length", "close_break", "pass_neutral",
-                    "swing_window", "fib_tolerance"]:
+                    "swing_window", "fib_tolerance", "min_wave_bars"]:
             assert key in js, f"app.js 参数面板缺少 {key}"
 
     def test_skill_scoped_params_in_strategy(self, js):
         # buildStrategy() 组装 {params: {skills: skillParams}} — 检查对象键名出现
         assert "skillParams" in js or "skill_params" in js or "skills: skill" in js, \
             "app.js buildStrategy 应发 skill-scoped params"
+
+    def test_skill_order_controls(self, js):
+        assert "moveSkillItem" in js, "app.js 缺少技能顺序移动函数"
+        assert "skillOrder" in js, "app.js 缺少技能顺序持久化"
+        assert "skill-move-btn" in js, "app.js 缺少技能上移/下移按钮"
 
     def test_bool_params_are_collected(self, js):
         assert "pd.type === 'bool'" in js
@@ -187,7 +226,24 @@ class TestStylesCssContent:
         assert "tag-soft" in css, "styles.css 缺少 .tag-soft（SMC soft_filter 标注）"
 
     def test_has_tag_weak(self, css):
-        assert "tag-weak" in css, "styles.css 缺少 .tag-weak（Wave 弱信号标注）"
+        assert "tag-weak" in css, "styles.css 缺少 .tag-weak（Wave 辅助标注）"
+
+    def test_has_storage_marker_styles(self, css):
+        assert "storage-card-source" in css
+        assert "storage-card-kline" in css
+        assert "storage-card-mask" in css
+
+    def test_has_inline_help_styles(self, css):
+        assert "info-btn" in css
+        assert "help-overlay" in css
+        assert "help-popover" in css
+
+    def test_has_stress_guide_styles(self, css):
+        assert "ops-guide" in css
+        assert "ops-guide-body" in css
+
+    def test_has_skill_move_button(self, css):
+        assert "skill-move-btn" in css, "styles.css 缺少技能上移/下移按钮样式"
 
     def test_has_alert_danger(self, css):
         assert "alert-danger" in css, "styles.css 缺少 .alert-danger"
@@ -341,11 +397,11 @@ class TestV6OP021PrefetchSummaryUI:
 
     def test_index_has_prefetch_box_id(self, html):
         assert 'id="prefetch-box"' in html, \
-            "index.html 缺少 id=prefetch-box（本轮预热摘要区域，V6OP-021 新增）"
+            "index.html 缺少 id=prefetch-box（本轮取数记录区域，V6OP-021 新增）"
 
     def test_index_has_prefetch_section_title(self, html):
-        assert "本轮预热摘要" in html, \
-            "index.html 缺少 '本轮预热摘要' 标题（V6OP-021 新增）"
+        assert "本轮取数记录" in html or "本轮数据准备摘要" in html, \
+            "index.html 缺少本轮取数记录标题（V6OP-021 新增）"
 
     def test_app_js_has_render_prefetch(self, js):
         assert "renderPrefetch" in js, \
@@ -382,3 +438,191 @@ class TestV6OP021PrefetchSummaryUI:
     def test_app_js_prefetch_triggered_check(self, js):
         assert "prefetch_triggered" in js, \
             "app.js renderPrefetch 应检查 prefetch_triggered 决定是否渲染"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# TestV6OP029WencaiSectorFavorites — V6OP-029 问财板块联动 + 收藏 + 中止
+# ══════════════════════════════════════════════════════════════════════
+
+class TestV6OP029WencaiSectorFavorites:
+    """V6OP-029: P1-P6预设 / 问财收藏 / 板块联动 / abort / 查看报告 / 清空日志 / Wave整理"""
+
+    @pytest.fixture(scope="class")
+    def js(self):
+        return (_ROOT / "web" / "app.js").read_text(encoding="utf-8")
+
+    @pytest.fixture(scope="class")
+    def html(self):
+        return (_ROOT / "web" / "index.html").read_text(encoding="utf-8")
+
+    @pytest.fixture(scope="class")
+    def css(self):
+        return (_ROOT / "web" / "styles.css").read_text(encoding="utf-8")
+
+    @pytest.fixture(scope="class")
+    def server_src(self):
+        return (_ROOT / "scripts" / "v6op_server.py").read_text(encoding="utf-8")
+
+    # ── P1-P6 预设 ────────────────────────────────────────────────────
+
+    def test_app_js_has_preset_queries(self, js):
+        assert "PRESET_QUERIES" in js, "app.js 缺少 PRESET_QUERIES 对象"
+
+    def test_app_js_has_all_six_presets(self, js):
+        for p in ["P1", "P2", "P3", "P4", "P5", "P6"]:
+            assert p in js, f"app.js PRESET_QUERIES 缺少 {p}"
+
+    def test_html_has_preset_buttons(self, html):
+        for p in ["P1", "P2", "P3", "P4", "P5", "P6"]:
+            assert f'data-preset="{p}"' in html, f"index.html 缺少 data-preset={p} 按钮"
+
+    def test_app_js_apply_preset_function(self, js):
+        assert "applyPreset" in js, "app.js 缺少 applyPreset 函数"
+
+    # ── 收藏 localStorage ─────────────────────────────────────────────
+
+    def test_app_js_fav_key_wencai(self, js):
+        assert "v6op_wencai_favorites" in js, "app.js 缺少 v6op_wencai_favorites key"
+
+    def test_app_js_fav_key_sector(self, js):
+        assert "v6op_sector_favorites" in js, "app.js 缺少 v6op_sector_favorites key"
+
+    def test_app_js_fav_crud_functions(self, js):
+        assert "loadFavs" in js, "app.js 缺少 loadFavs 函数"
+        assert "saveFavs" in js, "app.js 缺少 saveFavs 函数"
+        assert "addFav" in js, "app.js 缺少 addFav 函数"
+        assert "renderFavBar" in js, "app.js 缺少 renderFavBar 函数"
+
+    def test_html_has_fav_bars(self, html):
+        assert 'id="wencai-fav-bar"' in html, "index.html 缺少 id=wencai-fav-bar"
+        assert 'id="sector-fav-bar"' in html, "index.html 缺少 id=sector-fav-bar"
+
+    # ── 板块联动模式 ──────────────────────────────────────────────────
+
+    def test_app_js_set_wencai_mode(self, js):
+        assert "setWencaiMode" in js, "app.js 缺少 setWencaiMode 函数"
+
+    def test_app_js_wencai_mode_states(self, js):
+        assert "'stock'" in js, "app.js 缺少 'stock' 模式字符串"
+        assert "'sector'" in js, "app.js 缺少 'sector' 模式字符串"
+
+    def test_html_has_mode_buttons(self, html):
+        assert 'id="wm-btn-stock"' in html, "index.html 缺少 id=wm-btn-stock"
+        assert 'id="wm-btn-sector"' in html, "index.html 缺少 id=wm-btn-sector"
+
+    def test_html_has_phase_panels(self, html):
+        assert 'id="phase-a-panel"' in html, "index.html 缺少 id=phase-a-panel"
+        assert 'id="phase-b-panel"' in html, "index.html 缺少 id=phase-b-panel"
+
+    def test_app_js_scan_sectors_function(self, js):
+        assert "scanSectors" in js, "app.js 缺少 scanSectors 函数"
+
+    def test_app_js_confirm_sectors_function(self, js):
+        assert "confirmSectors" in js, "app.js 缺少 confirmSectors 函数"
+
+    def test_app_js_sector_builds_composite_query(self, js):
+        assert "属于" in js and "板块，且" in js, \
+            "app.js buildStrategy 未构建 '属于{sectors}板块，且{phaseB}' 合成查询"
+
+    def test_app_js_sector_linkage_metadata(self, js):
+        assert "sector_linkage" in js, "app.js 未附带 sector_linkage metadata"
+
+    # ── /api/scan_sectors 端点 ────────────────────────────────────────
+
+    def test_server_has_scan_sectors_endpoint(self, server_src):
+        assert "/api/scan_sectors" in server_src, "v6op_server.py 缺少 /api/scan_sectors 路由"
+
+    def test_server_scan_sectors_calls_sector_scan(self, server_src):
+        assert "sector_scan_source" in server_src, \
+            "v6op_server.py /api/scan_sectors 未调用 sector_scan_source"
+
+    def test_sector_scan_source_exists(self):
+        p = _ROOT / "scripts" / "sources" / "sector_scan_source.py"
+        assert p.exists(), "scripts/sources/sector_scan_source.py 不存在"
+
+    def test_sector_scan_source_scan_function(self):
+        p = _ROOT / "scripts" / "sources" / "sector_scan_source.py"
+        src = p.read_text(encoding="utf-8")
+        assert "def scan(" in src, "sector_scan_source.py 缺少 scan() 函数"
+
+    # ── /api/abort 端点 ───────────────────────────────────────────────
+
+    def test_server_has_abort_endpoint(self, server_src):
+        assert "/api/abort" in server_src, "v6op_server.py 缺少 /api/abort 路由"
+
+    def test_server_abort_calls_request_abort(self, server_src):
+        assert "request_abort" in server_src, \
+            "v6op_server.py /api/abort 未调用 execution_engine.request_abort()"
+
+    def test_app_js_has_api_abort(self, js):
+        assert "API.abort" in js or "'/api/abort'" in js or '"/api/abort"' in js, \
+            "app.js 未引用 /api/abort"
+
+    def test_html_has_btn_abort(self, html):
+        assert 'id="btn-abort"' in html, "index.html 缺少 id=btn-abort 按钮"
+
+    def test_app_js_bind_abort_button(self, js):
+        assert "bindAbortButton" in js, "app.js 缺少 bindAbortButton 函数"
+
+    # ── 查看报告 / 清空日志 ───────────────────────────────────────────
+
+    def test_html_has_btn_view_report(self, html):
+        assert 'id="btn-view-report"' in html, "index.html 缺少 id=btn-view-report 按钮"
+
+    def test_app_js_bind_view_report(self, js):
+        assert "bindViewReportButton" in js, "app.js 缺少 bindViewReportButton 函数"
+        assert "window.open" in js, "app.js btn-view-report 未调用 window.open"
+
+    def test_html_has_btn_clear_log(self, html):
+        assert 'id="btn-clear-log"' in html, "index.html 缺少 id=btn-clear-log 按钮"
+
+    def test_app_js_clear_log_dom_only(self, js):
+        assert "bindClearLogButton" in js, "app.js 缺少 bindClearLogButton 函数"
+        assert "磁盘文件未删除" in js, "app.js 清空日志应提示'磁盘文件未删除'"
+
+    # ── 启动管道标签 ──────────────────────────────────────────────────
+
+    def test_html_has_qi_dong_guan_dao(self, html):
+        assert "启动管道" in html, "index.html 缺少'启动管道'文字（V6OP-029 改名）"
+
+    # ── Wave 标签整理 ─────────────────────────────────────────────────
+
+    def test_wave_skill_no_is_weak(self, js):
+        import re
+        wave_block = re.search(r'wave\s*:\s*\{[^}]+\}', js)
+        if wave_block:
+            assert "isWeak" not in wave_block.group(), \
+                "SKILL_META.wave 不应包含 isWeak: true（V6OP-029 已移除）"
+
+    def test_render_hits_no_weak_signal_tag(self, js):
+        assert "has_weak_signal" not in js, \
+            "app.js renderHits 不应再读取 h.has_weak_signal（V6OP-029 已移除）"
+
+    # ── CSS 新样式 ────────────────────────────────────────────────────
+
+    def test_css_has_mode_btn(self, css):
+        assert "mode-btn" in css, "styles.css 缺少 .mode-btn 样式"
+
+    def test_css_has_fav_chip(self, css):
+        assert "fav-chip" in css, "styles.css 缺少 .fav-chip 样式"
+
+    def test_css_has_preset_btn(self, css):
+        assert "preset-btn" in css, "styles.css 缺少 .preset-btn 样式"
+
+    def test_css_has_confirmed_chip(self, css):
+        assert "confirmed-chip" in css, "styles.css 缺少 .confirmed-chip 样式"
+
+    def test_css_has_btn_danger(self, css):
+        assert "btn-danger" in css, "styles.css 缺少 .btn-danger 样式"
+
+    def test_css_has_sector_checklist(self, css):
+        assert "sector-check-group" in css, "styles.css 缺少 .sector-check-group 样式"
+
+    # ── execution_engine 中止支持 ──────────────────────────────────────
+
+    def test_execution_engine_has_abort_class(self):
+        p = _ROOT / "scripts" / "execution_engine.py"
+        src = p.read_text(encoding="utf-8")
+        assert "AbortRequested" in src, "execution_engine.py 缺少 AbortRequested 异常类"
+        assert "request_abort" in src, "execution_engine.py 缺少 request_abort() 函数"
+        assert "reset_abort" in src, "execution_engine.py 缺少 reset_abort() 函数"

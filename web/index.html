@@ -8,7 +8,7 @@
 </head>
 <body>
 
-<!-- ── 顶栏 ────────────────────────────────────────────────────── -->
+<!-- ── 顶栏 ────────────────────────────────────────────────── -->
 <header class="header">
   <h1>V6OP 操盘台</h1>
   <div id="health-dot" class="health-dot" title="后端状态"></div>
@@ -50,10 +50,17 @@
       <!-- 全 A 股面板 -->
       <div id="src-all-a" class="mt8 hidden">
         <div class="form-row">
-          <label for="all-a-limit">最大只数</label>
-          <input type="number" id="all-a-limit" value="50" min="1" max="5000" />
+          <label for="all-a-limit">扫描档位</label>
+          <select id="all-a-limit">
+            <option value="100">SAFE 100</option>
+            <option value="300" selected>STABLE 300</option>
+            <option value="500">TEST 500</option>
+            <option value="1000">PRO 1000</option>
+            <option value="2000">PRO 2000</option>
+            <option value="5000">PRO 5000（上限）</option>
+          </select>
         </div>
-        <div class="form-hint">默认 50；超过 300 只会提示风险，超过 500 只需确认才能运行</div>
+        <div class="form-hint">默认 STABLE 300；超过 500 只需确认才能运行</div>
         <div id="all-a-warn" class="alert alert-warn mt4 hidden">
           <span class="alert-icon">⚠️</span>
           <span id="all-a-warn-text">扫描只数较多，耗时可能较长。</span>
@@ -68,13 +75,82 @@
 
       <!-- 问财面板 -->
       <div id="src-wencai" class="mt8 hidden">
-        <input type="text" id="wencai-query" placeholder="例如：净利润增速大于 20%" />
-        <div class="form-row mt4">
-          <label for="wencai-limit">最多只数</label>
-          <input type="number" id="wencai-limit" value="50" min="1" max="500" />
+
+        <!-- 模式切换 -->
+        <div class="wencai-mode-row">
+          <button id="wm-btn-stock" class="mode-btn active" type="button">个股模式</button>
+          <button id="wm-btn-sector" class="mode-btn" type="button">板块联动</button>
         </div>
-        <div class="form-hint">问财 key 缺失或接口失败时将显示中文提示，不伪造成功</div>
-      </div>
+
+        <!-- Phase A：板块扫描（板块联动模式下显示） -->
+        <div id="phase-a-panel" class="hidden mt8">
+          <div class="sub-section-title">Phase A — 板块扫描</div>
+          <div class="fav-bar" id="sector-fav-bar"></div>
+          <textarea id="sector-query" rows="2"
+            placeholder="例如：今日主力资金净流入排名前十的行业板块，按净流入降序"></textarea>
+          <div class="form-row mt4" style="gap:4px;flex-wrap:wrap;align-items:center">
+            <button id="btn-save-sector-fav" class="btn btn-sm" type="button" title="收藏当前板块语句">☆ 收藏</button>
+            <label for="sector-top-n" style="margin-left:4px">取前</label>
+            <select id="sector-top-n" style="width:auto">
+              <option value="5">5</option>
+              <option value="10" selected>10</option>
+              <option value="20">20</option>
+              <option value="30">30</option>
+            </select>
+            <span>个</span>
+            <button id="btn-scan" class="btn btn-sm" type="button">🔍 扫描板块</button>
+            <span id="scan-spinner" class="spinner hidden"></span>
+          </div>
+          <!-- 扫描结果 checklist -->
+          <div id="sector-checklist" class="hidden mt4"></div>
+          <!-- 确认按钮 -->
+          <div id="sector-confirm-row" class="hidden mt4">
+            <button id="btn-confirm-sectors" class="btn btn-sm"
+              style="background:var(--green);color:#000;font-weight:700" type="button">
+              ✔ 确认所选板块
+            </button>
+          </div>
+          <!-- 已确认 chips -->
+          <div id="sector-confirmed" class="sector-confirmed-chips mt4" style="display:none"></div>
+          <div class="form-hint mt4">Phase A 扫描预览，不启动管道。确认后 Phase B 拼入 wencai query 运行。</div>
+        </div>
+
+        <!-- Phase B：问财个股选股 -->
+        <div id="phase-b-panel" class="mt8">
+          <div class="sub-section-title" id="phase-b-label">问财选股语句</div>
+
+          <!-- P1-P6 预设 -->
+          <div class="preset-row mt4">
+            <span class="preset-label">预设：</span>
+            <button class="preset-btn" type="button" data-preset="P1">P1</button>
+            <button class="preset-btn" type="button" data-preset="P2">P2</button>
+            <button class="preset-btn" type="button" data-preset="P3">P3</button>
+            <button class="preset-btn" type="button" data-preset="P4">P4</button>
+            <button class="preset-btn" type="button" data-preset="P5">P5</button>
+            <button class="preset-btn" type="button" data-preset="P6">P6</button>
+          </div>
+
+          <!-- 问财收藏 -->
+          <div class="fav-bar" id="wencai-fav-bar"></div>
+
+          <input type="text" id="wencai-query" placeholder="例如：净利润增速大于 20%" />
+
+          <div class="form-row mt4" style="gap:4px;flex-wrap:wrap;align-items:center">
+            <button id="btn-save-wencai-fav" class="btn btn-sm" type="button" title="收藏当前问财语句">☆ 收藏</button>
+            <label for="wencai-limit" style="margin-left:4px">档位</label>
+            <select id="wencai-limit">
+              <option value="100">SAFE 100</option>
+              <option value="300" selected>STABLE 300</option>
+              <option value="500">TEST 500</option>
+              <option value="1000">PRO 1000</option>
+              <option value="2000">PRO 2000</option>
+              <option value="5000">PRO 5000</option>
+            </select>
+          </div>
+          <div class="form-hint">Key 缺失或接口失败时显示中文提示，不伪造成功</div>
+        </div>
+
+      </div><!-- /src-wencai -->
     </div>
 
     <!-- 技能选择 -->
@@ -108,14 +184,36 @@
       <div class="form-hint mt4">sequential / parallel_and / simple_hybrid 三种固定路径</div>
     </div>
 
-    <!-- 启动 -->
+    <!-- 压力测试操作手册 -->
+    <details class="ops-guide">
+      <summary>
+        压力测试怎么跑
+        <button class="info-btn" type="button" data-help="stress-guide" aria-label="压力测试说明">i</button>
+      </summary>
+      <div class="ops-guide-body">
+        <div><b>1. 全A PRO 5000</b>：从本地A股名单最多取 5000 只；当前名单超过 5000，所以不是无上限完整。</div>
+        <div><b>2. 问财 PRO 5000</b>：最多取 5000 条问财结果；少于 5000 拿实际数，多于 5000 截断。</div>
+        <div><b>3. 全技能硬交集</b>：缠论 + K线 + SMC + 波浪 + 排雷一起卡，结果为 0 很正常。</div>
+        <div><b>4. 换技能重跑</b>：会重新启动一轮；K线数据库通常复用，不会自动清掉重拉。</div>
+        <div><b>5. 换路径重跑</b>：并行/顺序/混合会重新组合技能；已有K线继续用，技能结果能否复用看股票池和参数是否一样。</div>
+        <div><b>6. 先宽后严</b>：先用少量正向技能 + 排雷跑出池子，再加技能或换路径精算。</div>
+      </div>
+    </details>
+
+    <!-- 启动管道 -->
     <div>
-      <div class="section-title">启动</div>
-      <div class="flex">
-        <button id="btn-run" class="btn btn-primary">▶ 运行</button>
+      <div class="section-title">启动管道</div>
+      <div class="flex" style="gap:6px;flex-wrap:wrap;align-items:center">
+        <button id="btn-run" class="btn btn-primary">▶ 启动管道</button>
+        <button id="btn-abort" class="btn btn-danger" disabled>⏹ 中止运行</button>
         <span id="run-spinner" class="spinner hidden"></span>
         <span id="status-badge" class="badge badge-idle">待机</span>
-        <button id="btn-reset-params" class="btn" style="margin-left:8px;font-size:11px;padding:4px 10px;background:var(--surface2);color:var(--muted)" title="清除已保存参数，恢复默认值">↺ 恢复默认参数</button>
+      </div>
+      <div class="flex mt4" style="gap:6px;flex-wrap:wrap">
+        <button id="btn-view-report" class="btn btn-sm">📄 查看报告</button>
+        <button id="btn-clear-log" class="btn btn-sm">🗑 清空屏幕日志</button>
+        <button id="btn-reset-params" class="btn btn-sm"
+          title="清除已保存参数，恢复默认值">↺ 恢复默认参数</button>
       </div>
       <div class="flex mt4" style="font-size:11px;color:var(--muted)">
         run_id：<span id="run-id" class="monospace">—</span>
@@ -123,6 +221,8 @@
     </div>
 
   </section>
+
+  <div class="resizer" id="resizer-left"></div>
 
   <!-- ══ 中间：进度 + readiness + 覆盖 + 警告 + 技能摘要 ═══════════ -->
   <section class="panel" aria-label="运行进度">
@@ -147,22 +247,28 @@
       <div id="readiness-box">
         <div class="alert alert-info">
           <span class="alert-icon">ℹ️</span>
-          <span>运行后显示 readiness（ready / partial / aborted）</span>
+          <span>运行后显示数据状态（可分析 / 部分可分析 / 中止）</span>
         </div>
       </div>
     </div>
 
-    <!-- 数据覆盖 -->
+    <!-- 数据标记 -->
     <div>
-      <div class="section-title">数据覆盖</div>
+      <div class="section-title section-title-help">
+        <span>数据标记</span>
+        <button class="info-btn" type="button" data-help="data-markers" aria-label="数据标记说明">i</button>
+      </div>
       <div id="coverage-box">
         <span class="text-muted" style="font-size:11px">运行后显示</span>
       </div>
     </div>
 
-    <!-- 本轮预热摘要 -->
+    <!-- 本轮取数记录 -->
     <div>
-      <div class="section-title">本轮预热摘要</div>
+      <div class="section-title section-title-help">
+        <span>本轮取数记录</span>
+        <button class="info-btn" type="button" data-help="fetch-record" aria-label="本轮取数记录说明">i</button>
+      </div>
       <div id="prefetch-box">
         <span class="text-muted" style="font-size:11px">运行后显示</span>
       </div>
@@ -186,42 +292,99 @@
 
   </section>
 
-  <!-- ══ 右侧：命中结果 + 解释 + 失败 + 报告 ═══════════════════════ -->
-  <section class="panel" aria-label="命中结果">
+  <div class="resizer" id="resizer-right"></div>
 
-    <!-- 命中数 -->
-    <div>
-      <div class="section-title">命中结果</div>
-      <div class="flex" style="gap:10px;align-items:baseline">
+  <!-- ══ 右侧：三标签（命中结果 / 提示词库 / 历史报告）══════════════ -->
+  <section class="panel panel-right" aria-label="命中结果">
+
+    <!-- 标签栏 -->
+    <div class="rtabs">
+      <button class="rtab rtab-active" data-rtab="results" type="button">命中结果</button>
+      <button class="rtab" data-rtab="prompts" type="button">提示词库</button>
+      <button class="rtab" data-rtab="history" type="button">历史报告</button>
+    </div>
+
+    <!-- ─── Tab 1：命中结果 ─────────────────────────────────────── -->
+    <div id="rtab-results" class="rtab-panel">
+
+      <div class="flex" style="gap:10px;align-items:baseline;margin-bottom:4px">
         <span id="hit-count" class="hit-count">—</span>
         <span class="hit-count-label">只股票命中</span>
+        <span id="hit-scope-hint" style="font-size:11px;color:var(--muted)"></span>
       </div>
-    </div>
 
-    <!-- 命中列表 -->
-    <div id="hit-list" class="hit-list">
-      <span class="text-muted" style="font-size:12px">运行后显示命中列表与中文解释</span>
-    </div>
-
-    <!-- 失败 / 未分析 -->
-    <div>
-      <div class="section-title">失败 / 未分析</div>
-      <div id="failed-list" class="failed-list">
-        <span class="text-muted">无失败代码</span>
+      <div id="hit-list" class="hit-list">
+        <span class="text-muted" style="font-size:12px">运行后显示命中列表与中文解释</span>
       </div>
-    </div>
 
-    <!-- Stale（隐藏直到有数据） -->
-    <div id="stale-list" class="stale-list hidden"></div>
-
-    <!-- 报告入口 -->
-    <div>
-      <div class="section-title">报告</div>
-      <div id="report-links" class="report-links">
-        <a class="report-link" href="/api/result" target="_blank">📄 execution_result.json</a>
-        <a class="report-link" href="/api/health" target="_blank">🔍 health 检查</a>
+      <div>
+        <div class="section-title">失败 / 未分析</div>
+        <div id="failed-list" class="failed-list">
+          <span class="text-muted">无失败代码</span>
+        </div>
       </div>
-    </div>
+
+      <div id="stale-list" class="stale-list hidden"></div>
+
+      <div>
+        <div class="section-title">报告</div>
+        <div id="report-links" class="report-links">
+          <a class="report-link" href="/api/result" target="_blank">📄 execution_result.json</a>
+          <a class="report-link" href="/api/health" target="_blank">🔍 health 检查</a>
+        </div>
+      </div>
+
+    </div><!-- /rtab-results -->
+
+    <!-- ─── Tab 2：提示词库 ─────────────────────────────────────── -->
+    <div id="rtab-prompts" class="rtab-panel rtab-panel-hidden">
+      <div class="prompt-lib">
+
+        <div class="prompt-meta">
+          <span id="prompt-fill-status" style="font-size:11px;color:var(--muted)">
+            尚未运行，完成一次管道后同步结果
+          </span>
+          <button class="btn btn-sm" id="btn-prompt-fill" type="button">↺ 同步本次结果</button>
+        </div>
+
+        <div class="ptabs">
+          <button class="ptab ptab-active" data-ptab="综合分析" type="button">综合</button>
+          <button class="ptab" data-ptab="风险管理" type="button">风险</button>
+          <button class="ptab" data-ptab="板块验证" type="button">板块</button>
+          <button class="ptab" data-ptab="资金分析" type="button">资金</button>
+          <button class="ptab" data-ptab="交易计划" type="button">计划</button>
+          <button class="ptab" data-ptab="快速输出" type="button">速览</button>
+          <button class="ptab" data-ptab="自定义" type="button">自定义</button>
+        </div>
+
+        <textarea id="prompt-text" class="prompt-textarea"
+          placeholder="选择上方分类，提示词模板自动填充&#10;运行管道后点击「同步」带入本次命中股票"></textarea>
+
+        <div class="prompt-actions">
+          <button class="btn btn-primary btn-sm" id="btn-copy-prompt" type="button">📋 复制全文</button>
+          <span id="copy-tip" style="color:var(--green);font-size:11px;margin-left:6px;display:none">已复制!</span>
+          <span style="flex:1"></span>
+          <button class="btn btn-sm" id="btn-save-custom" type="button" style="display:none">💾 保存自定义</button>
+        </div>
+
+      </div>
+    </div><!-- /rtab-prompts -->
+
+    <!-- ─── Tab 3：历史报告 ─────────────────────────────────────── -->
+    <div id="rtab-history" class="rtab-panel rtab-panel-hidden">
+      <div class="history-panel">
+        <div class="flex" style="justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span class="section-title" style="margin:0">近期运行记录</span>
+          <button class="btn btn-sm" id="btn-clear-history" type="button">清除全部</button>
+        </div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:10px">
+          最多保留 20 条 · 本机浏览器存储
+        </div>
+        <div id="history-list">
+          <div class="text-muted" style="font-size:12px">暂无历史记录</div>
+        </div>
+      </div>
+    </div><!-- /rtab-history -->
 
   </section>
 
