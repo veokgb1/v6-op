@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>策略台 — V6OP</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    /* ── 策略台专属样式 ─────────────────────────────────────── */
+    .strategy-layout {
+      display: grid;
+      grid-template-columns: 320px 1fr 340px;
+      grid-template-rows: 1fr;
+      height: calc(100vh - var(--header-h, 44px) - var(--action-bar-h, 52px));
+      gap: 0;
+      overflow: hidden;
+    }
+    .strategy-panel {
+      overflow-y: auto;
+      padding: 12px 14px;
+      border-right: 1px solid var(--border);
+    }
+    .strategy-panel:last-child { border-right: none; }
+
+    /* ── 固定底部操作栏 ──────────────────────────────────────── */
+    .action-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: 52px;
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      z-index: 100;
+    }
+    .action-bar .run-meta {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* ── 策略预览区 ──────────────────────────────────────────── */
+    .query-preview-box {
+      background: var(--muted-bg, #1e1e1e);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 12px;
+      font-family: var(--mono, monospace);
+      color: var(--fg);
+      min-height: 60px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin-bottom: 8px;
+    }
+    .query-preview-label {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    /* ── 启动预览 Modal ──────────────────────────────────────── */
+    .run-preview-overlay {
+      position: fixed; inset: 0; z-index: 900;
+      background: rgba(0,0,0,0.65);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .run-preview-overlay.hidden { display: none !important; }
+    .run-preview-modal {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      width: min(600px, 94vw);
+      max-height: 80vh;
+      overflow-y: auto;
+      padding: 20px 22px;
+    }
+    .run-preview-modal h3 { margin: 0 0 14px; font-size: 15px; }
+    .run-preview-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .run-preview-table td {
+      padding: 5px 8px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .run-preview-table td:first-child {
+      width: 120px; color: var(--muted); white-space: nowrap;
+    }
+    .run-preview-actions { display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end; }
+
+    /* ── 策略模板管理 ────────────────────────────────────────── */
+    .template-list { display: flex; flex-direction: column; gap: 6px; }
+    .template-item {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--muted-bg, #1e1e1e);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+    .template-item-name { flex: 1; font-weight: 500; }
+    .template-item-meta { font-size: 10px; color: var(--muted); }
+
+    /* ── 最近输入 ────────────────────────────────────────────── */
+    .recent-item {
+      display: flex; align-items: flex-start; gap: 6px;
+      padding: 6px 0; border-bottom: 1px solid var(--border);
+      font-size: 11px;
+    }
+    .recent-item-text { flex: 1; color: var(--fg); word-break: break-all; }
+    .recent-item-meta { color: var(--muted); white-space: nowrap; }
+    .recent-tag {
+      font-size: 10px; padding: 1px 5px; border-radius: 3px;
+      background: var(--muted-bg, #2a2a2a); border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    /* ── 右侧结果区 ──────────────────────────────────────────── */
+    .results-area { display: flex; flex-direction: column; gap: 10px; }
+    .result-count-row {
+      display: flex; align-items: baseline; gap: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── 多页面导航 ──────────────────────────────────────────────── -->
+<nav class="v6-nav" id="v6-nav"></nav>
+
+<!-- ── 主体三栏布局 ───────────────────────────────────────────── -->
+<main class="strategy-layout">
+
+  <!-- ══ 左侧：股票来源 + 问财 Phase A/B ══════════════════════ -->
+  <section class="strategy-panel" aria-label="股票来源">
+
+    <div class="section-title">股票来源</div>
+    <div class="radio-group">
+      <label><input type="radio" name="source-type" value="manual" checked /> 手动输入代码</label>
+      <label><input type="radio" name="source-type" value="all_a" /> 全 A 股（limit）</label>
+      <label><input type="radio" name="source-type" value="wencai" /> 问财选股</label>
+    </div>
+
+    <!-- 手动输入 -->
+    <div id="src-manual" class="mt8">
+      <textarea id="manual-codes" rows="3"
+        placeholder="代码以逗号或换行分隔，例如：&#10;000001.SZ, 000002.SZ">000001.SZ, 000002.SZ, 000063.SZ</textarea>
+      <div class="form-hint">支持 .SZ / .SH / .BJ</div>
+    </div>
+
+    <!-- 全 A 股 -->
+    <div id="src-all-a" class="mt8 hidden">
+      <div class="form-row">
+        <label for="all-a-limit">扫描档位</label>
+        <select id="all-a-limit">
+          <option value="100">SAFE 100</option>
+          <option value="300" selected>STABLE 300</option>
+          <option value="500">TEST 500</option>
+          <option value="1000">PRO 1000</option>
+          <option value="2000">PRO 2000</option>
+          <option value="5000">PRO 5000（本地名单截取上限）</option>
+        </select>
+      </div>
+      <div class="form-hint" id="all-a-limit-hint">默认 STABLE 300；超过 500 只需确认</div>
+      <div id="all-a-warn" class="alert alert-warn mt4 hidden">
+        <span class="alert-icon">⚠️</span>
+        <span id="all-a-warn-text">扫描只数较多，耗时可能较长。</span>
+      </div>
+      <div id="all-a-confirm-row" class="mt4 hidden">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="all-a-confirm" />
+          <span style="font-size:12px">我知道这会运行较长时间，确认继续</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- 问财面板 -->
+    <div id="src-wencai" class="mt8 hidden">
+      <div class="wencai-mode-row">
+        <button id="wm-btn-stock" class="mode-btn active" type="button">个股模式</button>
+        <button id="wm-btn-sector" class="mode-btn" type="button">板块联动</button>
+      </div>
+
+      <!-- Phase A：板块扫描 -->
+      <div id="phase-a-panel" class="hidden mt8">
+        <div class="sub-section-title">Phase A — 板块扫描</div>
+        <div class="fav-bar" id="sector-fav-bar"></div>
+        <textarea id="sector-query" rows="2"
+          placeholder="例如：今日主力资金净流入排名前十的行业板块，按净流入降序"></textarea>
+        <div class="form-row mt4" style="gap:4px;flex-wrap:wrap;align-items:center">
+          <button id="btn-save-sector-fav" class="btn btn-sm" type="button">☆ 收藏</button>
+          <label for="sector-top-n" style="margin-left:4px">取前</label>
+          <select id="sector-top-n" style="width:auto">
+            <option value="5">5</option><option value="10" selected>10</option>
+            <option value="20">20</option><option value="30">30</option>
+          </select>
+          <span>个</span>
+          <button id="btn-scan" class="btn btn-sm" type="button">🔍 扫描板块</button>
+          <span id="scan-spinner" class="spinner hidden"></span>
+        </div>
+        <div id="sector-checklist" class="hidden mt4"></div>
+        <div id="sector-confirm-row" class="hidden mt4">
+          <button id="btn-confirm-sectors" class="btn btn-sm"
+            style="background:var(--green);color:#000;font-weight:700" type="button">
+            ✔ 确认所选板块
+          </button>
+        </div>
+        <div id="sector-confirmed" class="sector-confirmed-chips mt4" style="display:none"></div>
+        <div class="form-hint mt4">Phase A 扫描预览，不启动管道。确认后 Phase B 拼入 wencai query 运行。</div>
+      </div>
+
+      <!-- Phase B：个股选股 -->
+      <div id="phase-b-panel" class="mt8">
+        <div class="sub-section-title" id="phase-b-label">问财选股语句</div>
+        <div class="preset-row mt4">
+          <span class="preset-label">预设：</span>
+          <button class="preset-btn" type="button" data-preset="P1">P1</button>
+          <button class="preset-btn" type="button" data-preset="P2">P2</button>
+          <button class="preset-btn" type="button" data-preset="P3">P3</button>
+          <button class="preset-btn" type="button" data-preset="P4">P4</button>
+          <button class="preset-btn" type="button" data-preset="P5">P5</button>
+          <button class="preset-btn" type="button" data-preset="P6">P6</button>
+        </div>
+        <div class="fav-bar" id="wencai-fav-bar"></div>
+        <input type="text" id="wencai-query" placeholder="例如：净利润增速大于 20%" />
+        <div class="form-row mt4" style="gap:4px;flex-wrap:wrap;align-items:center">
+          <button id="btn-save-wencai-fav" class="btn btn-sm" type="button">☆ 收藏</button>
+          <label for="wencai-limit" style="margin-left:4px">档位</label>
+          <select id="wencai-limit">
+            <option value="100">SAFE 100</option>
+            <option value="300" selected>STABLE 300</option>
+            <option value="500">TEST 500</option>
+            <option value="1000">PRO 1000</option>
+            <option value="2000">PRO 2000</option>
+            <option value="5000">PRO 5000（最多接收问财返回结果）</option>
+          </select>
+        </div>
+        <div id="wencai-limit-hint" class="form-hint">档位说明：SAFE 100 ~ PRO 5000</div>
+      </div>
+    </div><!-- /src-wencai -->
+
+    <!-- Bridge -->
+    <div id="bridge-panel" class="bridge-panel mt8">
+      <label class="bridge-toggle">
+        <input type="checkbox" id="bridge-enabled" />
+        <span>问财二次验证 Bridge</span>
+        <span class="tag tag-ok">可选</span>
+      </label>
+      <div id="bridge-config" class="bridge-config hidden">
+        <div class="form-row mt4">
+          <label for="bridge-mode">模式</label>
+          <select id="bridge-mode">
+            <option value="constrained">约束当前股票池</option>
+            <option value="annotate">只给最终命中加标签</option>
+          </select>
+        </div>
+        <input type="text" id="bridge-query" class="mt4"
+          placeholder="例如：属于人工智能概念，或近5日主力资金净流入" />
+        <div class="form-row mt4" style="gap:4px;flex-wrap:wrap;align-items:center">
+          <label for="bridge-limit">问财上限</label>
+          <select id="bridge-limit">
+            <option value="100">100</option><option value="300" selected>300</option>
+            <option value="500">500</option><option value="1000">1000</option>
+            <option value="2000">2000</option><option value="5000">5000</option>
+          </select>
+        </div>
+        <div class="form-hint" id="bridge-hint">
+          约束模式：问财结果与股票池取交集；标注模式：命中列表加标签，不过滤。
+        </div>
+      </div>
+    </div>
+
+    <!-- 最近输入（从输入工坊同步） -->
+    <div class="mt12">
+      <div class="section-title section-title-help">
+        <span>最近输入</span>
+        <a class="btn btn-sm" href="/input.html" style="font-size:10px">→ 输入工坊</a>
+      </div>
+      <div id="recent-inputs-list">
+        <span class="text-muted" style="font-size:11px">打开输入工坊后自动同步</span>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ══ 中间：策略预览 + 日志 + 运行状态 ══════════════════════ -->
+  <section class="strategy-panel" aria-label="策略预览">
+
+    <div id="center-alerts" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+
+    <!-- 最终 Query 预览 -->
+    <div>
+      <div class="section-title section-title-help">
+        <span>最终 Query 预览</span>
+        <button class="btn btn-sm" id="btn-refresh-preview" type="button" style="font-size:10px">↺ 刷新</button>
+      </div>
+      <div class="query-preview-label">来源 / 模式</div>
+      <div id="preview-source" class="query-preview-box">—</div>
+      <div class="query-preview-label">技能链路</div>
+      <div id="preview-skills" class="query-preview-box">—</div>
+      <div class="query-preview-label">执行路径 / Bridge</div>
+      <div id="preview-path" class="query-preview-box">—</div>
+    </div>
+
+    <!-- 运行日志（折叠） -->
+    <details id="log-details" style="margin-top:12px" open>
+      <summary class="section-title" style="cursor:pointer;user-select:none">
+        运行日志 <span id="status-badge" class="badge badge-idle" style="margin-left:6px">待机</span>
+      </summary>
+      <div id="log-box" class="log-box" style="margin-top:6px">
+        <div class="log-line">
+          <span class="log-ts">—</span>
+          <span class="log-INFO">等待启动…</span>
+        </div>
+      </div>
+    </details>
+
+    <!-- 数据状态（折叠） -->
+    <details style="margin-top:8px">
+      <summary class="section-title" style="cursor:pointer;user-select:none">数据就绪状态</summary>
+      <div id="readiness-box" style="margin-top:6px">
+        <span class="text-muted" style="font-size:11px">运行后显示</span>
+      </div>
+    </details>
+
+    <details style="margin-top:8px">
+      <summary class="section-title" style="cursor:pointer;user-select:none">
+        数据标记
+        <button class="info-btn" type="button" data-help="data-markers" aria-label="数据标记说明">i</button>
+      </summary>
+      <div id="coverage-box" style="margin-top:6px">
+        <span class="text-muted" style="font-size:11px">运行后显示</span>
+      </div>
+    </details>
+
+    <details style="margin-top:8px">
+      <summary class="section-title" style="cursor:pointer;user-select:none">
+        本轮取数记录
+        <button class="info-btn" type="button" data-help="fetch-record" aria-label="本轮取数记录说明">i</button>
+      </summary>
+      <div id="prefetch-box" style="margin-top:6px">
+        <span class="text-muted" style="font-size:11px">运行后显示</span>
+      </div>
+    </details>
+
+    <details style="margin-top:8px">
+      <summary class="section-title" style="cursor:pointer;user-select:none">警告 / 标注</summary>
+      <div id="warnings-box" class="warnings-list" style="margin-top:6px">
+        <span class="text-muted" style="font-size:11px">运行后显示</span>
+      </div>
+    </details>
+
+    <details style="margin-top:8px">
+      <summary class="section-title" style="cursor:pointer;user-select:none">技能运行摘要</summary>
+      <div id="producer-box" style="margin-top:6px">
+        <span class="text-muted" style="font-size:11px">运行后显示</span>
+      </div>
+    </details>
+
+  </section>
+
+  <!-- ══ 右侧：技能 + 路径 + 结果 ═══════════════════════════════ -->
+  <section class="strategy-panel" aria-label="技能与结果">
+
+    <!-- 技能选择 -->
+    <div>
+      <div class="section-title">技能选择</div>
+      <div id="skill-list" class="checkbox-group">
+        <!-- 由 strategy.js / app.js buildSkillList() 动态生成 -->
+      </div>
+    </div>
+
+    <!-- 执行路径 -->
+    <div class="mt12">
+      <div class="section-title">执行路径</div>
+      <div class="radio-group">
+        <label>
+          <input type="radio" name="path-type" value="sequential" />
+          顺序漏斗 <span class="tag tag-ok" style="font-size:10px">sequential</span>
+        </label>
+        <label>
+          <input type="radio" name="path-type" value="parallel_and" checked />
+          并行取交集 <span class="tag tag-strict" style="font-size:10px">parallel_and</span>
+        </label>
+        <label>
+          <input type="radio" name="path-type" value="simple_hybrid" />
+          简单混合（前2并线+顺序过滤）<span class="tag tag-weak" style="font-size:10px">simple_hybrid</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- 命中结果 -->
+    <div class="mt12">
+      <div class="result-count-row">
+        <span id="hit-count" class="hit-count">—</span>
+        <span class="hit-count-label">只股票命中</span>
+        <span id="hit-scope-hint" style="font-size:11px;color:var(--muted)"></span>
+      </div>
+      <div id="hit-list" class="hit-list">
+        <span class="text-muted" style="font-size:12px">运行后显示命中列表与中文解释</span>
+      </div>
+    </div>
+
+    <div class="mt8">
+      <div class="section-title">失败 / 未分析</div>
+      <div id="failed-list" class="failed-list">
+        <span class="text-muted">无失败代码</span>
+      </div>
+    </div>
+
+    <div id="stale-list" class="stale-list hidden"></div>
+
+    <!-- 五层诊断（折叠） -->
+    <details id="global-explanation-section" class="result-details hidden" style="margin-top:8px">
+      <summary class="result-details-summary">
+        🔍 本轮全局解释（五层诊断）
+        <span id="why-zero-badge" class="tag tag-warn hidden">命中 0 归因</span>
+      </summary>
+      <div id="global-explanation-body" class="result-details-body">
+        <span class="text-muted">运行后显示</span>
+      </div>
+    </details>
+
+    <!-- 数据血缘（折叠） -->
+    <details id="data-provenance-section" class="result-details hidden" style="margin-top:8px">
+      <summary class="result-details-summary">📊 本轮数据血缘摘要</summary>
+      <div id="data-provenance-body" class="result-details-body">
+        <span class="text-muted">运行后显示</span>
+      </div>
+    </details>
+
+    <!-- Bridge 结果（折叠） -->
+    <details id="bridge-result-section" class="result-details hidden" style="margin-top:8px">
+      <summary class="result-details-summary">🔗 Bridge 二次验证结果</summary>
+      <div id="bridge-result-body" class="result-details-body">
+        <span class="text-muted">未启用 Bridge</span>
+      </div>
+    </details>
+
+    <!-- 报告链接 -->
+    <div class="mt8">
+      <div id="report-links" class="report-links">
+        <a class="report-link" href="/api/result" target="_blank">📄 run_report.json</a>
+        <a class="report-link" href="/reports.html">📊 报告中心</a>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<!-- ── 固定底部操作栏 ──────────────────────────────────────────── -->
+<div class="action-bar">
+  <button id="btn-run" class="btn btn-primary" type="button">▶ 预览并启动</button>
+  <button id="btn-abort" class="btn btn-danger" type="button" disabled>⏹ 中止</button>
+  <span id="run-spinner" class="spinner hidden"></span>
+  <button id="btn-save-template" class="btn btn-sm" type="button">💾 保存模板</button>
+  <button id="btn-clear-log" class="btn btn-sm" type="button">🗑 清空日志</button>
+  <button id="btn-reset-params" class="btn btn-sm" type="button" title="恢复默认参数">↺ 默认参数</button>
+  <button id="btn-view-report" class="btn btn-sm" type="button">📄 查看报告</button>
+  <div class="run-meta">
+    <span>run_id：<span id="run-id" class="monospace">—</span></span>
+  </div>
+</div>
+
+<!-- ── 启动预览 Modal ────────────────────────────────────────────── -->
+<div id="run-preview-overlay" class="run-preview-overlay hidden" role="dialog" aria-modal="true">
+  <div class="run-preview-modal">
+    <h3>▶ 确认启动策略</h3>
+    <table class="run-preview-table" id="run-preview-table">
+      <tbody id="run-preview-body"></tbody>
+    </table>
+    <div class="run-preview-actions">
+      <button class="btn btn-sm" id="btn-preview-cancel" type="button">取消</button>
+      <button class="btn btn-primary" id="btn-preview-confirm" type="button">确认启动</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 保存模板 Modal ────────────────────────────────────────────── -->
+<div id="template-save-overlay" class="run-preview-overlay hidden" role="dialog" aria-modal="true">
+  <div class="run-preview-modal">
+    <h3>💾 保存策略模板</h3>
+    <div class="form-row mt4">
+      <label for="template-name-input">模板名称</label>
+      <input type="text" id="template-name-input" placeholder="例如：AI板块-CZSC+KLine" style="flex:1" />
+    </div>
+    <div id="template-list" class="template-list mt8">
+      <div class="text-muted" style="font-size:11px">加载中…</div>
+    </div>
+    <div class="run-preview-actions">
+      <button class="btn btn-sm" id="btn-template-cancel" type="button">关闭</button>
+      <button class="btn btn-primary" id="btn-template-save" type="button">保存当前策略</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 帮助弹窗（app.js 提供） ─────────────────────────────────── -->
+<div id="help-overlay" class="help-overlay hidden">
+  <div class="help-popover" id="help-popover">
+    <div class="help-popover-header">
+      <span id="help-title"></span>
+      <button onclick="closeHelp()" class="btn btn-sm">✕</button>
+    </div>
+    <div id="help-body" class="help-body"></div>
+  </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script src="/app.js"></script>
+<script src="/js/strategy.js"></script>
+</body>
+</html>

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>输入工坊 — V6OP</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    /* ── 输入工坊专属样式 ───────────────────────────────────── */
+    .iw-layout {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      height: calc(100vh - var(--nav-h, 42px));
+      overflow: hidden;
+    }
+    .iw-sidebar {
+      border-right: 1px solid var(--border);
+      padding: 12px 8px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .iw-tab {
+      display: block; width: 100%;
+      padding: 8px 12px; text-align: left;
+      background: transparent; border: none; border-radius: 6px;
+      color: var(--fg); font-size: 13px; cursor: pointer;
+    }
+    .iw-tab:hover { background: var(--muted-bg, #2a2a2a); }
+    .iw-tab-active { background: var(--accent-bg, #1a2a1a) !important; color: var(--accent); font-weight: 600; }
+    .iw-content { overflow-y: auto; padding: 14px 18px; }
+    .iw-panel-hidden { display: none !important; }
+
+    /* ── 提示词矩阵 ──────────────────────────────────────────── */
+    .pm-toolbar {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+      margin-bottom: 12px;
+    }
+    .pm-search { flex: 1; min-width: 160px; }
+    .pm-type-btn, .pm-tag-btn {
+      padding: 3px 10px; border-radius: 12px; border: 1px solid var(--border);
+      background: transparent; color: var(--muted); font-size: 11px; cursor: pointer;
+    }
+    .pm-type-active, .pm-tag-active {
+      background: var(--accent); color: #000; border-color: var(--accent);
+    }
+    .pm-cards { display: flex; flex-direction: column; gap: 8px; }
+    .pm-card {
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 12px; background: var(--bg-panel);
+    }
+    .pm-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+    .pm-card-title  { font-weight: 600; font-size: 13px; flex: 1; }
+    .pm-card-type   { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: var(--muted-bg,#2a2a2a); }
+    .pm-card-body   { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+    .pm-card-footer { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+    .pm-card-tags   { display: flex; gap: 4px; flex-wrap: wrap; }
+    .pm-card-tag    { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--muted-bg,#1e1e1e); border: 1px solid var(--border); }
+    .pm-card-meta   { font-size: 10px; color: var(--muted); margin-left: auto; }
+    .pm-card-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+
+    /* ── 编辑 Modal ──────────────────────────────────────────── */
+    .pme-overlay {
+      position: fixed; inset: 0; z-index: 900;
+      background: rgba(0,0,0,0.65);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .pme-overlay.hidden { display: none !important; }
+    .pme-modal {
+      background: var(--bg-panel); border: 1px solid var(--border);
+      border-radius: 10px; width: min(540px, 94vw); padding: 20px 22px;
+    }
+    .pme-modal h3 { margin: 0 0 14px; font-size: 15px; }
+    .pme-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+
+    /* ── 条件积木 Composer ───────────────────────────────────── */
+    .composer-section { margin-bottom: 14px; }
+    .composer-section-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; font-weight: 600; text-transform: uppercase; }
+    .composer-chips-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .composer-chip {
+      padding: 4px 10px; border-radius: 14px;
+      border: 1px solid var(--border); background: transparent;
+      color: var(--fg); font-size: 12px; cursor: pointer; user-select: none;
+    }
+    .composer-chip:hover  { border-color: var(--accent); }
+    .composer-chip-active { background: var(--accent); color: #000; border-color: var(--accent); }
+    .composer-output-area { margin-top: 12px; }
+    .composer-textarea    { width: 100%; min-height: 64px; resize: vertical; }
+    .composer-actions     { display: flex; gap: 8px; margin-top: 8px; }
+
+    /* ── 最近使用 ────────────────────────────────────────────── */
+    .recent-item { display: flex; align-items: flex-start; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    .recent-tag  { font-size: 10px; padding: 2px 6px; border-radius: 3px; background: var(--muted-bg,#2a2a2a); border: 1px solid var(--border); white-space: nowrap; }
+    .recent-item-text { flex: 1; font-size: 12px; word-break: break-all; }
+    .recent-item-meta { font-size: 10px; color: var(--muted); white-space: nowrap; }
+
+    /* ── 策略模板 ────────────────────────────────────────────── */
+    .template-item { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-panel); margin-bottom: 6px; }
+    .template-item > div { flex: 1; }
+    .template-item-name { font-weight: 600; font-size: 13px; }
+    .template-item-meta { font-size: 11px; color: var(--muted); }
+
+    /* ── 导入导出 ────────────────────────────────────────────── */
+    .import-area { display: flex; flex-direction: column; gap: 10px; }
+    .import-textarea { width: 100%; min-height: 120px; resize: vertical; }
+  </style>
+</head>
+<body>
+
+<nav class="v6-nav" id="v6-nav"></nav>
+
+<div class="iw-layout">
+
+  <!-- ── 左侧导航 ──────────────────────────────────────────── -->
+  <aside class="iw-sidebar">
+    <div style="font-size:12px;font-weight:700;color:var(--muted);padding:4px 12px 8px">输入工坊</div>
+    <button class="iw-tab iw-tab-active" data-tab="matrix"    type="button">📋 提示词矩阵</button>
+    <button class="iw-tab"              data-tab="composer"   type="button">🧩 条件积木</button>
+    <button class="iw-tab"              data-tab="recent"     type="button">🕐 最近使用</button>
+    <button class="iw-tab"              data-tab="templates"  type="button">💾 策略模板</button>
+    <button class="iw-tab"              data-tab="importexport" type="button">↕ 导入导出</button>
+    <div style="flex:1"></div>
+    <div id="iw-alerts" style="padding:4px"></div>
+    <a class="btn btn-sm" href="/strategy.html" style="margin:4px;text-align:center">→ 策略台</a>
+  </aside>
+
+  <!-- ── 主内容区 ───────────────────────────────────────────── -->
+  <div class="iw-content">
+
+    <!-- § 1. 提示词矩阵 ─────────────────────────────────────── -->
+    <div id="iwp-matrix" class="iw-panel">
+      <div class="pm-toolbar">
+        <input id="pm-search" class="pm-search" type="text" placeholder="搜索标题、标签、正文…" />
+        <button class="pm-type-btn" data-type="stock"  type="button">个股</button>
+        <button class="pm-type-btn" data-type="sector" type="button">板块</button>
+        <button class="pm-type-btn" data-type="bridge" type="button">Bridge</button>
+        <button class="pm-type-btn" data-type="report" type="button">报告词</button>
+      </div>
+      <div class="pm-toolbar" style="gap:4px">
+        <span style="font-size:11px;color:var(--muted)">标签：</span>
+        <!-- 标签过滤 chips（JS 不生成，固定列表） -->
+        <button class="pm-tag-btn" data-tag="激进"   type="button">激进</button>
+        <button class="pm-tag-btn" data-tag="保守"   type="button">保守</button>
+        <button class="pm-tag-btn" data-tag="科技"   type="button">科技</button>
+        <button class="pm-tag-btn" data-tag="资金"   type="button">资金</button>
+        <button class="pm-tag-btn" data-tag="低吸"   type="button">低吸</button>
+        <button class="pm-tag-btn" data-tag="突破"   type="button">突破</button>
+        <button class="pm-tag-btn" data-tag="趋势"   type="button">趋势</button>
+        <button class="pm-tag-btn" data-tag="防守"   type="button">防守</button>
+        <button class="pm-tag-btn" data-tag="小盘"   type="button">小盘</button>
+        <button class="pm-tag-btn" data-tag="板块"   type="button">板块</button>
+        <button class="pm-tag-btn" data-tag="题材"   type="button">题材</button>
+        <button class="btn btn-sm" id="btn-pm-new"   type="button" style="margin-left:auto">+ 新建</button>
+      </div>
+      <div id="pm-cards" class="pm-cards">
+        <div class="text-muted" style="padding:20px 0">加载中…</div>
+      </div>
+    </div>
+
+    <!-- § 2. 条件积木 ────────────────────────────────────────── -->
+    <div id="iwp-composer" class="iw-panel iw-panel-hidden">
+      <h3 style="margin:0 0 14px;font-size:14px">🧩 条件积木 Composer</h3>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px">
+        点击 chips 自动合成问财语句，合成后可手动编辑，再一键送入 Phase A / Phase B。
+      </p>
+      <div id="composer-chips"></div>
+      <div class="composer-output-area">
+        <div class="form-hint mb4">合成结果（可手动编辑）</div>
+        <textarea id="composer-output" class="composer-textarea"
+          placeholder="选择上方条件后自动合成，也可直接手动输入…"></textarea>
+        <div class="composer-actions">
+          <button class="btn btn-sm" id="btn-composer-clear"  type="button">清空选择</button>
+          <button class="btn btn-primary btn-sm" id="btn-composer-to-b" type="button">→ Phase B（个股）</button>
+          <button class="btn btn-sm"             id="btn-composer-to-a" type="button">→ Phase A（板块）</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- § 3. 最近使用 ────────────────────────────────────────── -->
+    <div id="iwp-recent" class="iw-panel iw-panel-hidden">
+      <h3 style="margin:0 0 14px;font-size:14px">🕐 最近使用（近 30 条）</h3>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px">
+        自动记录每次填入策略台的 query。可一键填入、收藏、删除、复制。
+      </p>
+      <div id="recent-list"></div>
+    </div>
+
+    <!-- § 4. 策略模板 ────────────────────────────────────────── -->
+    <div id="iwp-templates" class="iw-panel iw-panel-hidden">
+      <h3 style="margin:0 0 14px;font-size:14px">💾 策略模板</h3>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px">
+        模板保存完整配置（来源、问财、技能、路径、Bridge）。恢复模板会同步到策略台（不自动运行）。
+      </p>
+      <div class="form-hint" style="margin-bottom:8px">
+        在策略台「保存模板」按钮可创建新模板，此处查看 / 恢复 / 删除。
+      </div>
+      <div id="tmpl-list">
+        <div class="text-muted" style="padding:12px 0">加载中…</div>
+      </div>
+    </div>
+
+    <!-- § 5. 导入导出 ────────────────────────────────────────── -->
+    <div id="iwp-importexport" class="iw-panel iw-panel-hidden">
+      <h3 style="margin:0 0 14px;font-size:14px">↕ 导入 / 导出</h3>
+
+      <div style="margin-bottom:20px">
+        <div class="section-title">导入提示词</div>
+        <div class="form-hint" style="margin-bottom:8px">
+          支持：JSON 数组（[{"type","title","tags","body"}]）、普通文本（每段一条，第1行标题，第2行标签，其余正文）。
+        </div>
+        <div class="import-area">
+          <textarea id="import-textarea" class="import-textarea"
+            placeholder='粘贴 JSON 或纯文本…&#10;&#10;示例 JSON：&#10;[{"type":"stock","title":"测试","tags":["激进"],"body":"净利润增速大于20%"}]'></textarea>
+          <button class="btn btn-primary btn-sm" id="btn-import" type="button">导入</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-title">导出提示词库</div>
+        <div class="form-hint" style="margin-bottom:8px">将当前所有提示词导出为 JSON 文件。</div>
+        <button class="btn btn-sm" id="btn-export" type="button">📥 导出 JSON</button>
+      </div>
+
+      <!-- 策略草稿预览 -->
+      <div style="margin-top:24px">
+        <div class="section-title">当前策略草稿</div>
+        <div class="form-hint" style="margin-bottom:8px">发送到策略台的内容预览：</div>
+        <div id="iw-draft-preview" style="font-size:12px;border:1px solid var(--border);border-radius:6px;padding:10px;min-height:40px;word-break:break-all">
+          <span class="text-muted">尚未发送任何内容</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /iw-content -->
+</div><!-- /iw-layout -->
+
+<!-- ── 提示词编辑 Modal ─────────────────────────────────────── -->
+<div id="pm-edit-modal" class="pme-overlay hidden" role="dialog" aria-modal="true">
+  <div class="pme-modal">
+    <h3>✏️ 编辑提示词</h3>
+    <input type="hidden" id="pme-id" />
+    <div class="form-row mt4">
+      <label for="pme-title">标题</label>
+      <input type="text" id="pme-title" placeholder="简短标题" style="flex:1" />
+    </div>
+    <div class="form-row mt4">
+      <label for="pme-type">类型</label>
+      <select id="pme-type">
+        <option value="stock">stock（个股）</option>
+        <option value="sector">sector（板块）</option>
+        <option value="bridge">bridge（二次验证）</option>
+        <option value="report">report（报告提示词）</option>
+      </select>
+    </div>
+    <div class="form-row mt4">
+      <label for="pme-tags">标签</label>
+      <input type="text" id="pme-tags" placeholder="逗号分隔，例如：激进, 科技" style="flex:1" />
+    </div>
+    <div class="mt4">
+      <label for="pme-body" style="display:block;font-size:12px;margin-bottom:4px">正文（问财语句）</label>
+      <textarea id="pme-body" rows="4" style="width:100%"
+        placeholder="例如：近5日主力资金净流入大于1亿，且非ST"></textarea>
+    </div>
+    <div class="pme-actions">
+      <button class="btn btn-sm" id="btn-pme-cancel" type="button">取消</button>
+      <button class="btn btn-primary" id="btn-pme-save" type="button">保存</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script src="/js/prompt_bank.js"></script>
+<script src="/js/input_workbench.js"></script>
+</body>
+</html>

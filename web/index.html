@@ -8,6 +8,9 @@
 </head>
 <body>
 
+<!-- ── 多页面导航（common.js + strategy.js 初始化）────────── -->
+<nav class="v6-nav" id="v6-nav"></nav>
+
 <!-- ── 顶栏 ────────────────────────────────────────────────── -->
 <header class="header">
   <h1>V6OP 操盘台</h1>
@@ -541,6 +544,13 @@
   </div><!-- /mgmt-modal -->
 </div><!-- /mgmt-overlay -->
 
+<script src="/js/common.js"></script>
 <script src="/app.js"></script>
+<script>
+  // 初始化导航（index.html 使用 strategy 页面标识）
+  document.addEventListener('DOMContentLoaded', function() {
+    V6Common.V6Nav.init('strategy');
+  });
+</script>
 </body>
 </html>

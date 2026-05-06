@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>报告对比 — V6OP</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .cmp-layout { padding: 14px 18px; overflow-y: auto; }
+    .cmp-selectors {
+      display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+      padding: 12px; background: var(--bg-panel); border: 1px solid var(--border);
+      border-radius: 8px; margin-bottom: 16px;
+    }
+    .cmp-sel-group { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 180px; }
+    .cmp-sel-group label { font-size: 11px; color: var(--muted); }
+    .cmp-sel-group select { width: 100%; }
+
+    /* 对比表格 */
+    .cmp-table {
+      width: 100%; border-collapse: collapse; font-size: 12px;
+    }
+    .cmp-table th, .cmp-table td {
+      padding: 7px 10px; border-bottom: 1px solid var(--border);
+      vertical-align: top; text-align: left;
+    }
+    .cmp-table th { background: var(--bg-panel); color: var(--muted); font-size: 11px; font-weight: 600; }
+    .cmp-col-header { min-width: 180px; }
+    .cmp-run-id   { font-family: var(--mono, monospace); font-size: 11px; }
+    .cmp-run-meta { font-size: 10px; color: var(--muted); }
+    .cmp-run-hits { font-size: 11px; color: var(--green); margin-top: 2px; }
+    .cmp-label    { white-space: nowrap; color: var(--muted); font-weight: 600; width: 140px; }
+    .cmp-diff     { background: rgba(245,158,11,0.08); }
+
+    /* 复盘文本 */
+    .cmp-result-area { overflow-x: auto; }
+  </style>
+</head>
+<body>
+
+<nav class="v6-nav" id="v6-nav"></nav>
+
+<div class="cmp-layout">
+
+  <div id="cmp-alerts" style="margin-bottom:8px"></div>
+
+  <!-- 报告选择器 -->
+  <div class="cmp-selectors">
+    <div class="cmp-sel-group">
+      <label for="cmp-sel-1">报告 A</label>
+      <select id="cmp-sel-1"><option value="">加载中…</option></select>
+    </div>
+    <div class="cmp-sel-group">
+      <label for="cmp-sel-2">报告 B</label>
+      <select id="cmp-sel-2"><option value="">加载中…</option></select>
+    </div>
+    <div class="cmp-sel-group">
+      <label for="cmp-sel-3">报告 C（可选）</label>
+      <select id="cmp-sel-3"><option value="">（不选）</option></select>
+    </div>
+    <div class="cmp-sel-group">
+      <label for="cmp-sel-4">报告 D（可选）</label>
+      <select id="cmp-sel-4"><option value="">（不选）</option></select>
+    </div>
+    <div style="display:flex;gap:8px;align-items:flex-end">
+      <button class="btn btn-primary" id="btn-cmp-run"  type="button">⚖ 对比</button>
+      <button class="btn btn-sm"       id="btn-cmp-copy" type="button">📋 复制结果</button>
+      <a class="btn btn-sm" href="/reports.html">← 报告中心</a>
+    </div>
+  </div>
+
+  <!-- 对比结果 -->
+  <div class="cmp-result-area">
+    <div id="cmp-body">
+      <div class="text-muted" style="padding:20px 0">选择 2~4 份报告后点击「对比」</div>
+    </div>
+  </div>
+
+</div>
+
+<script src="/js/common.js"></script>
+<script src="/js/compare.js"></script>
+</body>
+</html>

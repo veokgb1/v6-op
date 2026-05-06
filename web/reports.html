@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>报告中心 — V6OP</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .rpt-layout {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      height: calc(100vh - var(--nav-h, 42px));
+      overflow: hidden;
+    }
+    .rpt-main { padding: 14px 18px; overflow-y: auto; }
+    .rpt-detail-panel {
+      border-left: 1px solid var(--border);
+      padding: 14px 16px; overflow-y: auto;
+    }
+    .rpt-detail-panel.hidden { display: none; }
+
+    /* 工具栏 */
+    .rpt-toolbar {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+      margin-bottom: 12px;
+    }
+    .rpt-search { flex: 1; min-width: 200px; }
+
+    /* 表格 */
+    .rpt-table {
+      width: 100%; border-collapse: collapse; font-size: 12px;
+    }
+    .rpt-table th {
+      text-align: left; padding: 6px 8px;
+      border-bottom: 2px solid var(--border);
+      color: var(--muted); font-weight: 600; font-size: 11px;
+      white-space: nowrap; cursor: pointer; user-select: none;
+    }
+    .rpt-table th:hover { color: var(--fg); }
+    .rpt-table td {
+      padding: 7px 8px; border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .rpt-row:hover td { background: var(--muted-bg, #1e1e1e); }
+
+    /* 详情表格 */
+    .rpt-detail-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .rpt-detail-table td {
+      padding: 5px 6px; border-bottom: 1px solid var(--border); vertical-align: top;
+    }
+    .rpt-detail-table td:first-child {
+      width: 80px; color: var(--muted); white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+
+<nav class="v6-nav" id="v6-nav"></nav>
+
+<div class="rpt-layout">
+
+  <!-- ── 左侧：报告列表 ─────────────────────────────────────── -->
+  <div class="rpt-main">
+    <div id="rpt-alerts" style="margin-bottom:8px"></div>
+
+    <div class="rpt-toolbar">
+      <input id="rpt-search" class="rpt-search" type="text"
+        placeholder="搜索 run_id、股票代码、问财语句…" />
+      <select id="rpt-src-filter">
+        <option value="">全部来源</option>
+        <option value="manual">手动输入</option>
+        <option value="all_a">全 A 股</option>
+        <option value="wencai">问财</option>
+      </select>
+      <span id="rpt-count" class="text-muted" style="font-size:11px">—</span>
+      <button class="btn btn-sm" id="btn-rpt-refresh" type="button">↺ 刷新</button>
+      <button class="btn btn-sm" id="btn-rpt-compare" type="button">⚖ 对比勾选</button>
+      <a class="btn btn-sm" href="/compare.html">→ 报告对比</a>
+    </div>
+
+    <div style="overflow-x:auto">
+      <table class="rpt-table">
+        <thead>
+          <tr>
+            <th style="width:30px"></th>
+            <th data-sort="run_id">run_id ↕</th>
+            <th data-sort="started_at">时间 ↕</th>
+            <th data-sort="source_type">来源</th>
+            <th>问财语句摘要</th>
+            <th data-sort="hit_count">命中 ↕</th>
+            <th data-sort="failed_count">失败 ↕</th>
+            <th>技能链路</th>
+            <th data-sort="path_type">执行路径</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="rpt-list-body">
+          <tr><td colspan="10" class="text-muted" style="padding:16px">加载中…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── 右侧：报告详情 ─────────────────────────────────────── -->
+  <div id="rpt-detail-panel" class="rpt-detail-panel hidden">
+    <div id="rpt-detail-body">
+      <span class="text-muted">点击「详情」查看</span>
+    </div>
+  </div>
+
+</div>
+
+<script src="/js/common.js"></script>
+<script src="/js/reports.js"></script>
+</body>
+</html>

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>管理中心 — V6OP</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .mgmt-page-layout {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      height: calc(100vh - var(--nav-h, 42px));
+      overflow: hidden;
+    }
+    .mgmt-page-sidebar {
+      border-right: 1px solid var(--border);
+      padding: 12px 8px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .mgmt-tab-btn {
+      display: block; width: 100%;
+      padding: 8px 12px; text-align: left;
+      background: transparent; border: none; border-radius: 6px;
+      color: var(--fg); font-size: 13px; cursor: pointer;
+    }
+    .mgmt-tab-btn:hover { background: var(--muted-bg, #2a2a2a); }
+    .mgmt-tab-active { background: var(--accent-bg, #1a2a1a) !important; color: var(--accent); font-weight: 600; }
+    .mgmt-page-content { overflow-y: auto; padding: 14px 18px; }
+    .mgmt-panel-hidden { display: none !important; }
+
+    /* 历史 */
+    .mgmt-history-item {
+      padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px;
+      margin-bottom: 8px; background: var(--bg-panel);
+    }
+    .mgmt-run-id    { font-family: var(--mono, monospace); font-size: 12px; font-weight: 600; }
+    .mgmt-run-meta  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .mgmt-run-query { font-size: 11px; color: var(--fg); margin-top: 4px; }
+
+    /* 缓存 */
+    .mgmt-cache-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+    .cache-layer-card {
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 14px 16px; background: var(--bg-panel);
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .cache-layer-title { font-weight: 700; font-size: 13px; }
+    .cache-layer-desc  { font-size: 11px; color: var(--muted); }
+    .cache-clear-result { font-size: 11px; color: var(--green); min-height: 16px; }
+
+    /* 帮助 */
+    .ops-guide summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+    .ops-guide-body { padding: 8px 0 8px 12px; }
+    .ops-guide-body div { font-size: 12px; margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+
+<nav class="v6-nav" id="v6-nav"></nav>
+
+<div class="mgmt-page-layout">
+
+  <!-- ── 左侧 Tab 导航 ─────────────────────────────────────── -->
+  <aside class="mgmt-page-sidebar">
+    <div style="font-size:12px;font-weight:700;color:var(--muted);padding:4px 12px 8px">管理中心</div>
+    <button class="mgmt-tab-btn mgmt-tab-active" data-mtab="history"    type="button">📋 历史记录</button>
+    <button class="mgmt-tab-btn"                 data-mtab="cache"      type="button">🗑 缓存管理</button>
+    <button class="mgmt-tab-btn"                 data-mtab="wencai"     type="button">🔑 问财授权</button>
+    <button class="mgmt-tab-btn"                 data-mtab="settings"   type="button">⚙ 系统设置</button>
+    <button class="mgmt-tab-btn"                 data-mtab="help"       type="button">❓ 帮助文档</button>
+    <div style="flex:1"></div>
+    <div id="mgmt-alerts" style="padding:4px"></div>
+  </aside>
+
+  <!-- ── 主内容区 ───────────────────────────────────────────── -->
+  <div class="mgmt-page-content">
+
+    <!-- § 历史记录 ──────────────────────────────────────────── -->
+    <div id="mtp-history" class="mgmt-tab-panel">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <h3 style="margin:0;font-size:14px">近期运行记录（最多 20 条）</h3>
+        <button class="btn btn-sm" id="btn-mgmt-reload-history" type="button">↺ 刷新</button>
+      </div>
+      <div class="form-hint" style="margin-bottom:8px">
+        点击「恢复参数」将把该次运行参数写入策略台草稿，打开策略台后自动同步（不会自动启动运行）。
+      </div>
+      <div id="mgmt-history-list">
+        <div class="text-muted" style="font-size:12px">加载中…</div>
+      </div>
+    </div>
+
+    <!-- § 缓存管理 ──────────────────────────────────────────── -->
+    <div id="mtp-cache" class="mgmt-tab-panel mgmt-panel-hidden">
+      <h3 style="margin:0 0 14px;font-size:14px">三层缓存管理</h3>
+      <div class="mgmt-cache-grid">
+        <div class="cache-layer-card">
+          <div class="cache-layer-title">★ 来源快照</div>
+          <div class="cache-layer-desc">问财 / 全A 来源 scope 文件，清理后下次运行重新获取来源</div>
+          <button class="btn btn-sm" id="btn-mgmt-clear-source" type="button">清理来源快照</button>
+          <div id="clear-source-result" class="cache-clear-result"></div>
+        </div>
+        <div class="cache-layer-card">
+          <div class="cache-layer-title">★★ K线数据库</div>
+          <div class="cache-layer-desc">var/cache/kline_daily/*.pkl，清理后需重新拉取行情数据</div>
+          <button class="btn btn-sm btn-danger-light" id="btn-mgmt-clear-kline" type="button">清理K线缓存</button>
+          <div id="clear-kline-result" class="cache-clear-result"></div>
+        </div>
+        <div class="cache-layer-card">
+          <div class="cache-layer-title">★★★ 技能结果库</div>
+          <div class="cache-layer-desc">output/mask_cache/*.json，清理后 Producer 重新计算</div>
+          <button class="btn btn-sm btn-danger-light" id="btn-mgmt-clear-skill" type="button">清理技能缓存</button>
+          <div id="clear-skill-result" class="cache-clear-result"></div>
+        </div>
+      </div>
+      <div class="form-hint mt8">三层缓存互相独立，清理时不会误伤其他层。</div>
+    </div>
+
+    <!-- § 问财授权 ──────────────────────────────────────────── -->
+    <div id="mtp-wencai" class="mgmt-tab-panel mgmt-panel-hidden">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+        <h3 style="margin:0;font-size:14px">问财授权状态</h3>
+        <button class="btn btn-sm" id="btn-mgmt-check-wencai" type="button">检查</button>
+      </div>
+      <div id="mgmt-wencai-status" style="background:var(--muted-bg,#1e1e1e);border:1px solid var(--border);border-radius:6px;padding:12px;min-height:60px">
+        <span class="text-muted">点击「检查」查看当前授权状态</span>
+      </div>
+      <div class="form-hint mt8">
+        说明：pywencai 使用 session 认证，不接受 api_key 参数。IWENCAI_API_KEY 在 .env 中的值
+        目前不传入 pywencai.get()，实际认证依赖 pywencai 本地缓存的 session cookie。
+        若问财返回 0 只，请先检查 pywencai session 是否有效。
+      </div>
+    </div>
+
+    <!-- § 系统设置 ──────────────────────────────────────────── -->
+    <div id="mtp-settings" class="mgmt-tab-panel mgmt-panel-hidden">
+      <h3 style="margin:0 0 14px;font-size:14px">系统设置</h3>
+      <div class="form-row">
+        <label>默认执行路径</label>
+        <select id="mgmt-setting-path">
+          <option value="parallel_and">parallel_and（并行取交集）</option>
+          <option value="sequential">sequential（顺序漏斗）</option>
+          <option value="simple_hybrid">simple_hybrid（简单混合）</option>
+        </select>
+      </div>
+      <div class="form-row mt4">
+        <label>默认 K线 days</label>
+        <select id="mgmt-setting-days">
+          <option value="365">365 天</option>
+          <option value="730">730 天</option>
+          <option value="180">180 天</option>
+        </select>
+      </div>
+      <div class="flex mt8" style="gap:8px;align-items:center">
+        <button class="btn btn-sm" id="btn-mgmt-save-settings" type="button">保存设置</button>
+        <span id="mgmt-settings-tip" style="font-size:11px;color:var(--green);display:none">已保存</span>
+      </div>
+    </div>
+
+    <!-- § 帮助文档 ──────────────────────────────────────────── -->
+    <div id="mtp-help" class="mgmt-tab-panel mgmt-panel-hidden">
+      <h3 style="margin:0 0 14px;font-size:14px">帮助文档</h3>
+      <details class="ops-guide" open>
+        <summary>压力测试怎么跑</summary>
+        <div class="ops-guide-body">
+          <div><b>1. 全A PRO 5000</b>：从本地A股名单最多截取 5000 只；这是名单上限，不是问财。</div>
+          <div><b>2. 问财 PRO 5000</b>：最多接收问财返回结果 5000 条；少于 5000 拿实际数，多于截断。</div>
+          <div><b>3. 全技能硬交集</b>：缠论 + K线 + SMC + 波浪 + 排雷一起卡，结果为 0 很正常。</div>
+          <div><b>4. 换技能重跑</b>：会重新启动一轮；K线数据库通常复用，不会自动清掉重拉。</div>
+          <div><b>5. 先宽后严</b>：先用少量正向技能 + 排雷跑出池子，再加技能或换路径精算。</div>
+          <div><b>6. days 参数</b>：改变 days 会影响 K线取数量、技能分析范围和缓存指纹。</div>
+        </div>
+      </details>
+      <details class="ops-guide mt4">
+        <summary>全局解释层说明</summary>
+        <div class="ops-guide-body">
+          <div><b>来源层</b>：股票池从哪里来，实际返回多少。</div>
+          <div><b>数据层</b>：K线是否就绪，有多少本地 / 新拉 / 失败 / 降级。</div>
+          <div><b>技能层</b>：每个技能输入多少、命中多少、哪个技能最先筛空。</div>
+          <div><b>路径层</b>：顺序漏斗哪一步清零，并行交集为什么为空。</div>
+          <div><b>报告层</b>：最终解释是否完整，下一步建议什么。</div>
+        </div>
+      </details>
+      <details class="ops-guide mt4">
+        <summary>多页面架构说明</summary>
+        <div class="ops-guide-body">
+          <div><b>策略台</b>：主运行页，配置来源 / 技能 / 路径，启动管道。</div>
+          <div><b>输入工坊</b>：提示词矩阵、条件积木、最近使用、策略模板管理。</div>
+          <div><b>报告中心</b>：查看历史报告、搜索、载入策略参数。</div>
+          <div><b>报告对比</b>：选2~4份报告，对比共同命中、唯一命中、参数差异。</div>
+          <div><b>管理中心</b>：本页，历史恢复、缓存清理、问财授权、系统设置。</div>
+        </div>
+      </details>
+    </div>
+
+  </div><!-- /mgmt-page-content -->
+</div><!-- /mgmt-page-layout -->
+
+<script src="/js/common.js"></script>
+<script src="/js/manage.js"></script>
+</body>
+</html>

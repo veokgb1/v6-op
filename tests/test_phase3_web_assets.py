@@ -636,3 +636,512 @@ class TestV6OP029WencaiSectorFavorites:
         assert "AbortRequested" in src, "execution_engine.py 缺少 AbortRequested 异常类"
         assert "request_abort" in src, "execution_engine.py 缺少 request_abort() 函数"
         assert "reset_abort" in src, "execution_engine.py 缺少 reset_abort() 函数"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# TestMultiPageArchitecture — 多页面架构升级验证
+# ══════════════════════════════════════════════════════════════════════
+
+class TestMultiPageArchitectureFiles:
+    """多页面架构：验证所有新建 HTML / JS 文件存在。"""
+
+    def test_common_js_exists(self):
+        assert (_WEB / "js" / "common.js").exists(), "web/js/common.js 不存在"
+
+    def test_strategy_html_exists(self):
+        assert (_WEB / "strategy.html").exists(), "web/strategy.html 不存在"
+
+    def test_strategy_js_exists(self):
+        assert (_WEB / "js" / "strategy.js").exists(), "web/js/strategy.js 不存在"
+
+    def test_input_html_exists(self):
+        assert (_WEB / "input.html").exists(), "web/input.html 不存在"
+
+    def test_prompt_bank_js_exists(self):
+        assert (_WEB / "js" / "prompt_bank.js").exists(), "web/js/prompt_bank.js 不存在"
+
+    def test_input_workbench_js_exists(self):
+        assert (_WEB / "js" / "input_workbench.js").exists(), "web/js/input_workbench.js 不存在"
+
+    def test_reports_html_exists(self):
+        assert (_WEB / "reports.html").exists(), "web/reports.html 不存在"
+
+    def test_reports_js_exists(self):
+        assert (_WEB / "js" / "reports.js").exists(), "web/js/reports.js 不存在"
+
+    def test_compare_html_exists(self):
+        assert (_WEB / "compare.html").exists(), "web/compare.html 不存在"
+
+    def test_compare_js_exists(self):
+        assert (_WEB / "js" / "compare.js").exists(), "web/js/compare.js 不存在"
+
+    def test_manage_html_exists(self):
+        assert (_WEB / "manage.html").exists(), "web/manage.html 不存在"
+
+    def test_manage_js_exists(self):
+        assert (_WEB / "js" / "manage.js").exists(), "web/js/manage.js 不存在"
+
+
+class TestCommonJsContent:
+    """common.js：共享 API 端点注册表、工具函数、导航栏。"""
+
+    @pytest.fixture(scope="class")
+    def js(self):
+        return (_WEB / "js" / "common.js").read_text(encoding="utf-8")
+
+    def test_exports_v6common(self, js):
+        assert "V6Common" in js, "common.js 未导出 window.V6Common"
+
+    def test_has_v6api_object(self, js):
+        assert "V6API" in js, "common.js 缺少 V6API 对象"
+
+    def test_v6api_has_health(self, js):
+        assert "/api/health" in js, "common.js V6API 缺少 /api/health"
+
+    def test_v6api_has_run(self, js):
+        assert "/api/run" in js, "common.js V6API 缺少 /api/run"
+
+    def test_v6api_has_runs(self, js):
+        assert "/api/runs" in js, "common.js V6API 缺少 /api/runs"
+
+    def test_v6api_has_wencai_status(self, js):
+        assert "/api/wencai/status" in js, "common.js V6API 缺少 /api/wencai/status"
+
+    def test_v6api_has_compare_reports(self, js):
+        assert "/api/reports/compare" in js, "common.js V6API 缺少 /api/reports/compare"
+
+    def test_v6api_has_cache_endpoints(self, js):
+        assert "/api/cache/clear/source" in js, "common.js V6API 缺少 cacheSource"
+        assert "/api/cache/clear/kline" in js, "common.js V6API 缺少 cacheKline"
+        assert "/api/cache/clear/skill" in js, "common.js V6API 缺少 cacheSkill"
+
+    def test_has_v6esc_function(self, js):
+        assert "v6Esc" in js, "common.js 缺少 v6Esc HTML 转义函数"
+
+    def test_has_v6store(self, js):
+        assert "V6Store" in js, "common.js 缺少 V6Store localStorage 工具"
+
+    def test_v6store_has_get_set(self, js):
+        assert "get(" in js, "common.js V6Store 缺少 get 方法"
+        assert "set(" in js, "common.js V6Store 缺少 set 方法"
+
+    def test_has_v6nav(self, js):
+        assert "V6Nav" in js, "common.js 缺少 V6Nav 导航栏对象"
+
+    def test_v6nav_has_init(self, js):
+        assert "init(" in js, "common.js V6Nav 缺少 init 方法"
+
+    def test_v6nav_has_pages_list(self, js):
+        assert "strategy" in js, "common.js V6Nav 页面列表缺少 strategy"
+        assert "reports" in js, "common.js V6Nav 页面列表缺少 reports"
+        assert "compare" in js, "common.js V6Nav 页面列表缺少 compare"
+        assert "manage" in js, "common.js V6Nav 页面列表缺少 manage"
+
+    def test_has_v6fmtdate(self, js):
+        assert "v6FmtDate" in js, "common.js 缺少 v6FmtDate 日期格式函数"
+
+    def test_has_v6alert(self, js):
+        assert "v6Alert" in js, "common.js 缺少 v6Alert 提示函数"
+
+
+class TestIndexHtmlNavBar:
+    """index.html 已加入顶部导航栏（不破坏原有 DOM IDs）。"""
+
+    @pytest.fixture(scope="class")
+    def html(self):
+        return (_WEB / "index.html").read_text(encoding="utf-8")
+
+    def test_has_nav_element(self, html):
+        assert 'id="v6-nav"' in html, "index.html 缺少 id=v6-nav 导航栏元素"
+
+    def test_loads_common_js(self, html):
+        assert "common.js" in html, "index.html 应在 app.js 前加载 js/common.js"
+
+    def test_original_btn_run_still_present(self, html):
+        assert 'id="btn-run"' in html, "index.html 的 id=btn-run 在加导航后不能丢失"
+
+    def test_original_log_box_still_present(self, html):
+        assert 'id="log-box"' in html, "index.html 的 id=log-box 在加导航后不能丢失"
+
+
+class TestStrategyHtmlContent:
+    """strategy.html：3列布局、行动栏、预览 Modal、导航栏。"""
+
+    @pytest.fixture(scope="class")
+    def html(self):
+        return (_WEB / "strategy.html").read_text(encoding="utf-8")
+
+    def test_has_nav(self, html):
+        assert 'id="v6-nav"' in html, "strategy.html 缺少 id=v6-nav"
+
+    def test_loads_common_js(self, html):
+        assert "common.js" in html, "strategy.html 应加载 js/common.js"
+
+    def test_loads_app_js(self, html):
+        assert "app.js" in html, "strategy.html 应加载 app.js"
+
+    def test_loads_strategy_js(self, html):
+        assert "strategy.js" in html, "strategy.html 应加载 js/strategy.js"
+
+    def test_has_source_radios(self, html):
+        assert 'name="source-type"' in html, "strategy.html 缺少 source-type 来源选择"
+
+    def test_has_skill_list(self, html):
+        assert 'id="skill-list"' in html, "strategy.html 缺少 id=skill-list"
+
+    def test_has_btn_run(self, html):
+        assert 'id="btn-run"' in html, "strategy.html 缺少 id=btn-run"
+
+    def test_has_btn_abort(self, html):
+        assert 'id="btn-abort"' in html, "strategy.html 缺少 id=btn-abort"
+
+    def test_has_action_bar(self, html):
+        assert "action-bar" in html, "strategy.html 缺少底部行动栏 .action-bar"
+
+    def test_has_run_preview_overlay(self, html):
+        assert "run-preview-overlay" in html, "strategy.html 缺少预览 Modal"
+
+    def test_has_log_box(self, html):
+        assert 'id="log-box"' in html, "strategy.html 缺少 id=log-box"
+
+    def test_has_hit_list(self, html):
+        assert 'id="hit-list"' in html, "strategy.html 缺少 id=hit-list"
+
+    def test_has_failed_list(self, html):
+        assert 'id="failed-list"' in html, "strategy.html 缺少 id=failed-list"
+
+    def test_has_path_type_radios(self, html):
+        assert 'name="path-type"' in html, "strategy.html 缺少 path-type 路径选择"
+
+    def test_charset_utf8(self, html):
+        assert "utf-8" in html.lower(), "strategy.html 未声明 UTF-8"
+
+
+class TestStrategyJsContent:
+    """strategy.js：拦截运行按钮、预览策略、模板保存。"""
+
+    @pytest.fixture(scope="class")
+    def js(self):
+        return (_WEB / "js" / "strategy.js").read_text(encoding="utf-8")
+
+    def test_intercepts_run_button(self, js):
+        assert "_interceptRunButton" in js or "btn-run" in js, \
+            "strategy.js 应拦截 #btn-run 按钮"
+
+    def test_has_run_preview(self, js):
+        assert "_showRunPreview" in js or "run-preview" in js, \
+            "strategy.js 缺少运行预览逻辑"
+
+    def test_has_template_save(self, js):
+        assert "template" in js.lower(), "strategy.js 缺少模板保存功能"
+
+    def test_listens_strategy_draft(self, js):
+        assert "v6op_strategy_draft" in js, \
+            "strategy.js 应监听 v6op_strategy_draft localStorage 键"
+
+    def test_uses_v6common(self, js):
+        assert "V6Common" in js, "strategy.js 应使用 V6Common 共享模块"
+
+
+class TestInputHtmlContent:
+    """input.html：提示词矩阵、条件积木、最近使用、模板。"""
+
+    @pytest.fixture(scope="class")
+    def html(self):
+        return (_WEB / "input.html").read_text(encoding="utf-8")
+
+    def test_has_nav(self, html):
+        assert 'id="v6-nav"' in html, "input.html 缺少 id=v6-nav"
+
+    def test_loads_common_js(self, html):
+        assert "common.js" in html, "input.html 应加载 js/common.js"
+
+    def test_loads_prompt_bank_js(self, html):
+        assert "prompt_bank.js" in html, "input.html 应加载 js/prompt_bank.js"
+
+    def test_loads_input_workbench_js(self, html):
+        assert "input_workbench.js" in html, "input.html 应加载 js/input_workbench.js"
+
+    def test_has_matrix_panel(self, html):
+        assert "matrix" in html.lower() or "提示词" in html, \
+            "input.html 缺少提示词矩阵面板"
+
+    def test_has_composer_panel(self, html):
+        assert "composer" in html.lower() or "条件" in html, \
+            "input.html 缺少条件积木面板"
+
+    def test_charset_utf8(self, html):
+        assert "utf-8" in html.lower(), "input.html 未声明 UTF-8"
+
+
+class TestPromptBankJsContent:
+    """prompt_bank.js：内置提示词、CRUD、搜索。"""
+
+    @pytest.fixture(scope="class")
+    def js(self):
+        return (_WEB / "js" / "prompt_bank.js").read_text(encoding="utf-8")
+
+    def test_exports_prompt_bank(self, js):
+        assert "PromptBank" in js, "prompt_bank.js 未导出 PromptBank 对象"
+
+    def test_has_builtin_prompts(self, js):
+        assert "BUILTIN" in js or "builtin" in js.lower(), \
+            "prompt_bank.js 缺少内置提示词列表"
+
+    def test_has_load_function(self, js):
+        assert "load" in js, "prompt_bank.js 缺少 load 函数"
+
+    def test_has_search_function(self, js):
+        assert "search" in js, "prompt_bank.js 缺少 search 函数"
+
+    def test_has_send_to_draft(self, js):
+        assert "sendToDraft" in js or "v6op_strategy_draft" in js, \
+            "prompt_bank.js 缺少 sendToDraft / strategy draft 写入"
+
+    def test_has_import_function(self, js):
+        assert "import" in js.lower(), "prompt_bank.js 缺少导入函数"
+
+
+class TestReportsHtmlContent:
+    """reports.html：历史列表、搜索过滤、详情面板。"""
+
+    @pytest.fixture(scope="class")
+    def html(self):
+        return (_WEB / "reports.html").read_text(encoding="utf-8")
+
+    def test_has_nav(self, html):
+        assert 'id="v6-nav"' in html, "reports.html 缺少 id=v6-nav"
+
+    def test_loads_common_js(self, html):
+        assert "common.js" in html, "reports.html 应加载 js/common.js"
+
+    def test_loads_reports_js(self, html):
+        assert "reports.js" in html, "reports.html 应加载 js/reports.js"
+
+    def test_has_search_input(self, html):
+        assert "search" in html.lower() or "搜索" in html, \
+            "reports.html 缺少搜索输入"
+
+    def test_has_compare_button(self, html):
+        assert "compare" in html.lower() or "对比" in html, \
+            "reports.html 缺少对比入口"
+
+    def test_charset_utf8(self, html):
+        assert "utf-8" in html.lower(), "reports.html 未声明 UTF-8"
+
+
+class TestReportsJsContent:
+    """reports.js：加载运行列表、过滤排序、恢复草稿。"""
+
+    @pytest.fixture(scope="class")
+    def js(self):
+        return (_WEB / "js" / "reports.js").read_text(encoding="utf-8")
+
+    def test_fetches_runs_api(self, js):
+        assert "V6API.runs" in js or "/api/runs" in js, \
+            "reports.js 未调用 /api/runs 接口"
+
+    def test_has_restore_to_draft(self, js):
+        assert "v6op_strategy_draft" in js or "_rptLoad" in js, \
+            "reports.js 缺少恢复到策略台草稿功能"
+
+    def test_has_go_compare(self, js):
+        assert "compare" in js.lower(), "reports.js 缺少跳转对比页逻辑"
+
+    def test_uses_v6common(self, js):
+        assert "V6Common" in js, "reports.js 应使用 V6Common 共享模块"
+
+
+class TestCompareHtmlContent:
+    """compare.html：4份报告选择器、对比按钮、结果区域。"""
+
+    @pytest.fixture(scope="class")
+    def html(self):
+        return (_WEB / "compare.html").read_text(encoding="utf-8")
+
+    def test_has_nav(self, html):
+        assert 'id="v6-nav"' in html, "compare.html 缺少 id=v6-nav"
+
+    def test_loads_common_js(self, html):
+        assert "common.js" in html, "compare.html 应加载 js/common.js"
+
+    def test_loads_compare_js(self, html):
+        assert "compare.js" in html, "compare.html 应加载 js/compare.js"
+
+    def test_has_four_selectors(self, html):
+        for i in range(1, 5):
+            assert f'id="cmp-sel-{i}"' in html, \
+                f"compare.html 缺少 id=cmp-sel-{i} 报告选择器"
+
+    def test_has_compare_button(self, html):
+        assert 'id="btn-cmp-run"' in html, "compare.html 缺少 id=btn-cmp-run 对比按钮"
+
+    def test_has_result_area(self, html):
+        assert 'id="cmp-body"' in html, "compare.html 缺少 id=cmp-body 结果区域"
+
+    def test_charset_utf8(self, html):
+        assert "utf-8" in html.lower(), "compare.html 未声明 UTF-8"
+
+
+class TestCompareJsContent:
+    """compare.js：Set 交集算法、参数对比、差异高亮。"""
+
+    @pytest.fixture(scope="class")
+    def js(self):
+        return (_WEB / "js" / "compare.js").read_text(encoding="utf-8")
+
+    def test_has_do_compare(self, js):
+        assert "_doCompare" in js, "compare.js 缺少 _doCompare 函数"
+
+    def test_has_render_compare(self, js):
+        assert "_renderCompare" in js, "compare.js 缺少 _renderCompare 函数"
+
+    def test_computes_common_hits(self, js):
+        assert "common" in js, "compare.js 缺少共同命中计算"
+
+    def test_computes_unique_hits(self, js):
+        assert "unique" in js, "compare.js 缺少唯一命中计算"
+
+    def test_has_diff_highlight(self, js):
+        assert "cmp-diff" in js, "compare.js 缺少参数差异高亮 .cmp-diff"
+
+    def test_uses_v6common(self, js):
+        assert "V6Common" in js, "compare.js 应使用 V6Common 共享模块"
+
+
+class TestManageHtmlContent:
+    """manage.html：历史恢复、缓存管理、问财授权、系统设置。"""
+
+    @pytest.fixture(scope="class")
+    def html(self):
+        return (_WEB / "manage.html").read_text(encoding="utf-8")
+
+    def test_has_nav(self, html):
+        assert 'id="v6-nav"' in html, "manage.html 缺少 id=v6-nav"
+
+    def test_loads_common_js(self, html):
+        assert "common.js" in html, "manage.html 应加载 js/common.js"
+
+    def test_loads_manage_js(self, html):
+        assert "manage.js" in html, "manage.html 应加载 js/manage.js"
+
+    def test_has_history_panel(self, html):
+        assert "history" in html.lower() or "历史" in html, \
+            "manage.html 缺少历史记录面板"
+
+    def test_has_cache_panel(self, html):
+        assert "cache" in html.lower() or "缓存" in html, \
+            "manage.html 缺少缓存管理面板"
+
+    def test_has_wencai_panel(self, html):
+        assert "wencai" in html.lower() or "问财" in html, \
+            "manage.html 缺少问财授权面板"
+
+    def test_has_cache_clear_buttons(self, html):
+        assert "btn-mgmt-clear-source" in html, "manage.html 缺少清理来源快照按钮"
+        assert "btn-mgmt-clear-kline" in html, "manage.html 缺少清理K线缓存按钮"
+        assert "btn-mgmt-clear-skill" in html, "manage.html 缺少清理技能缓存按钮"
+
+    def test_charset_utf8(self, html):
+        assert "utf-8" in html.lower(), "manage.html 未声明 UTF-8"
+
+
+class TestManageJsContent:
+    """manage.js：历史加载、缓存清理、问财检查、设置持久化。"""
+
+    @pytest.fixture(scope="class")
+    def js(self):
+        return (_WEB / "js" / "manage.js").read_text(encoding="utf-8")
+
+    def test_loads_history(self, js):
+        assert "_loadHistory" in js, "manage.js 缺少 _loadHistory 函数"
+
+    def test_has_restore_function(self, js):
+        assert "_mgmtRestore" in js, "manage.js 缺少 _mgmtRestore 函数"
+
+    def test_restore_writes_draft(self, js):
+        assert "v6op_strategy_draft" in js, \
+            "manage.js 恢复参数应写入 v6op_strategy_draft"
+
+    def test_bind_cache(self, js):
+        assert "_bindCache" in js, "manage.js 缺少 _bindCache 函数"
+
+    def test_bind_wencai_auth(self, js):
+        assert "_bindWencaiAuth" in js or "wencai" in js.lower(), \
+            "manage.js 缺少问财授权检查逻辑"
+
+    def test_bind_settings(self, js):
+        assert "_bindSettings" in js or "v6op_settings" in js, \
+            "manage.js 缺少系统设置持久化"
+
+    def test_uses_v6common(self, js):
+        assert "V6Common" in js, "manage.js 应使用 V6Common 共享模块"
+
+
+class TestServerNewApiEndpoints:
+    """v6op_server.py：验证多页面架构新增 API 端点。"""
+
+    @pytest.fixture(scope="class")
+    def server_src(self):
+        return (_ROOT / "scripts" / "v6op_server.py").read_text(encoding="utf-8")
+
+    def test_has_get_runs_list(self, server_src):
+        assert "/api/runs" in server_src, \
+            "v6op_server.py 缺少 GET /api/runs 运行列表端点"
+
+    def test_has_get_run_by_id(self, server_src):
+        # /api/runs/{run_id} 路由
+        assert "run_id_req" in server_src, \
+            "v6op_server.py 缺少 GET /api/runs/{run_id} 单条报告端点"
+
+    def test_has_get_run_params(self, server_src):
+        assert "/params" in server_src, \
+            "v6op_server.py 缺少 GET /api/runs/{run_id}/params 参数端点"
+
+    def test_has_compare_reports_endpoint(self, server_src):
+        assert "/api/reports/compare" in server_src, \
+            "v6op_server.py 缺少 POST /api/reports/compare 对比端点"
+
+    def test_has_wencai_status_endpoint(self, server_src):
+        assert "/api/wencai/status" in server_src, \
+            "v6op_server.py 缺少 GET /api/wencai/status 端点"
+
+    def test_has_cache_clear_endpoints(self, server_src):
+        assert "/api/cache/clear/source" in server_src, \
+            "v6op_server.py 缺少 /api/cache/clear/source 端点"
+        assert "/api/cache/clear/kline" in server_src, \
+            "v6op_server.py 缺少 /api/cache/clear/kline 端点"
+        assert "/api/cache/clear/skill" in server_src, \
+            "v6op_server.py 缺少 /api/cache/clear/skill 端点"
+
+    def test_compare_endpoint_requires_min_two_ids(self, server_src):
+        assert "len(run_ids) < 2" in server_src or "至少 2 个" in server_src, \
+            "v6op_server.py /api/reports/compare 应校验至少 2 个 run_id"
+
+
+class TestStylesCssMultiPage:
+    """styles.css：多页面新增 CSS 变量和组件样式。"""
+
+    @pytest.fixture(scope="class")
+    def css(self):
+        return (_WEB / "styles.css").read_text(encoding="utf-8")
+
+    def test_has_nav_h_variable(self, css):
+        assert "--nav-h" in css, "styles.css 缺少 --nav-h CSS 变量"
+
+    def test_has_v6_nav_class(self, css):
+        assert ".v6-nav" in css, "styles.css 缺少 .v6-nav 导航栏样式"
+
+    def test_has_v6_nav_link(self, css):
+        assert "v6-nav-link" in css, "styles.css 缺少 .v6-nav-link 样式"
+
+    def test_has_v6_nav_active(self, css):
+        assert "v6-nav-active" in css, "styles.css 缺少 .v6-nav-active 活跃状态样式"
+
+    def test_has_btn_sm(self, css):
+        assert "btn-sm" in css, "styles.css 缺少 .btn-sm 小按钮样式"
+
+    def test_has_text_utility_classes(self, css):
+        assert "text-green" in css, "styles.css 缺少 .text-green 工具类"
+        assert "text-red" in css, "styles.css 缺少 .text-red 工具类"
+        assert "text-muted" in css, "styles.css 缺少 .text-muted 工具类"

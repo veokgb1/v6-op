@@ -27,7 +27,7 @@ import threading
 import time
 import traceback
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -161,8 +161,10 @@ class V6OPHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
+        self.close_connection = True
 
     def _read_body(self) -> bytes:
         length = int(self.headers.get("Content-Length", 0))
@@ -173,7 +175,9 @@ class V6OPHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Connection", "close")
         self.end_headers()
+        self.close_connection = True
 
     def do_GET(self) -> None:
         path = self.path.split("?")[0]
@@ -261,6 +265,33 @@ class V6OPHandler(BaseHTTPRequestHandler):
                         except Exception:
                             runs.append({"run_id": run_dir.name, "status": "unreadable"})
             self._send_json(200, {"runs": runs[:20], "total": len(runs)})
+
+        elif path.startswith("/api/runs/") and "/" not in path[len("/api/runs/"):]:
+            # 新 API: GET /api/runs/{run_id} — 获取单条运行的完整报告
+            run_id_req = path[len("/api/runs/"):]
+            if run_id_req:
+                rr_path = _PROJECT_ROOT / "output" / "runs" / run_id_req / "run_report.json"
+                if rr_path.exists():
+                    try:
+                        d = json.loads(rr_path.read_text(encoding="utf-8"))
+                        d.setdefault("_run_id", run_id_req)
+                        self._send_json(200, d)
+                    except Exception as exc:
+                        self._send_json(500, {"error": str(exc)})
+                else:
+                    # 降级到 current output
+                    cur_path = _PROJECT_ROOT / "output" / "current" / "run_report.json"
+                    if cur_path.exists():
+                        try:
+                            d = json.loads(cur_path.read_text(encoding="utf-8"))
+                            d.setdefault("_run_id", run_id_req)
+                            self._send_json(200, d)
+                        except Exception as exc:
+                            self._send_json(500, {"error": str(exc)})
+                    else:
+                        self._send_json(404, {"error": f"报告不存在: {run_id_req}"})
+            else:
+                self._send_json(400, {"error": "run_id 不能为空"})
 
         elif path.startswith("/api/runs/") and path.endswith("/params"):
             # G7: 恢复历史运行参数（只返回，不启动）
@@ -365,8 +396,10 @@ class V6OPHandler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Connection", "close")
             self.end_headers()
             self.wfile.write(body)
+            self.close_connection = True
         except Exception as exc:
             self._send_json(500, {"error": str(exc)})
 
@@ -550,6 +583,45 @@ class V6OPHandler(BaseHTTPRequestHandler):
                 "message": f"技能结果库已清理 {cleared_count} 个缓存文件",
             })
 
+        elif path == "/api/reports/compare":
+            # 报告对比：POST {"run_ids": ["id1", "id2", ...]} → 返回各报告摘要列表
+            body = self._read_body()
+            try:
+                req = json.loads(body.decode("utf-8")) if body else {}
+            except json.JSONDecodeError as exc:
+                self._send_json(400, {"error": f"JSON 解析失败: {exc}"})
+                return
+            run_ids = req.get("run_ids") or []
+            if not isinstance(run_ids, list) or len(run_ids) < 2:
+                self._send_json(400, {"error": "需要至少 2 个 run_id"})
+                return
+
+            reports = []
+            for rid in run_ids[:4]:  # 最多 4 份
+                rid = str(rid).strip()
+                rr_path = _PROJECT_ROOT / "output" / "runs" / rid / "run_report.json"
+                if rr_path.exists():
+                    try:
+                        d = json.loads(rr_path.read_text(encoding="utf-8"))
+                        d.setdefault("_run_id", rid)
+                        reports.append(d)
+                    except Exception as exc:
+                        reports.append({"_run_id": rid, "_error": str(exc)})
+                else:
+                    # 尝试 current output（兜底）
+                    cur = _PROJECT_ROOT / "output" / "current" / "run_report.json"
+                    if cur.exists():
+                        try:
+                            d = json.loads(cur.read_text(encoding="utf-8"))
+                            d.setdefault("_run_id", rid)
+                            reports.append(d)
+                        except Exception:
+                            reports.append({"_run_id": rid, "_error": "run_report.json 不存在"})
+                    else:
+                        reports.append({"_run_id": rid, "_error": "run_report.json 不存在"})
+
+            self._send_json(200, {"reports": reports, "count": len(reports)})
+
         else:
             self._send_json(404, {"error": f"未知路径: {path}"})
 
@@ -559,7 +631,7 @@ class V6OPHandler(BaseHTTPRequestHandler):
 def start_server(port: int = _DEFAULT_PORT, bind: str = "127.0.0.1") -> HTTPServer:
     for attempt_port in [port, port + 1, port + 2]:
         try:
-            server = HTTPServer((bind, attempt_port), V6OPHandler)
+            server = ThreadingHTTPServer((bind, attempt_port), V6OPHandler)
             if attempt_port != port:
                 print(
                     f"[v6op_server] 端口 {port} 被占用，使用 {attempt_port}",
