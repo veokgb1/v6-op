@@ -23,6 +23,7 @@ import hashlib
 import io
 import json
 import os
+import pickle
 import sys
 import threading
 import time
@@ -256,6 +257,135 @@ def _fallback_combine(
     return result
 
 
+def _extract_code_list(raw: Any) -> list[str]:
+    """Extract stock codes from ['000001.SZ'] or [{'code': '000001.SZ'}]."""
+    codes: list[str] = []
+    if not isinstance(raw, list):
+        return codes
+    for item in raw:
+        if isinstance(item, str) and item:
+            codes.append(item)
+        elif isinstance(item, dict) and item.get("code"):
+            codes.append(str(item["code"]))
+    return codes
+
+
+def _read_cached_kline_meta(cache_dir: Path, code: str, days: int) -> dict[str, Any]:
+    safe = code.replace(".", "_").replace("/", "_")
+    cp = cache_dir / f"{safe}_{days}d.pkl"
+    if not cp.exists():
+        return {}
+    try:
+        with open(cp, "rb") as f:
+            df = pickle.load(f)
+        latest = ""
+        try:
+            latest = str(df.index[-1])[:10] if len(df) > 0 else ""
+        except Exception:
+            latest = ""
+        attrs = getattr(df, "attrs", {}) or {}
+        return {
+            "latest_date": str(attrs.get("latest_date") or latest)[:10],
+            "provider": attrs.get("source", ""),
+            "cache_file": str(cp),
+        }
+    except Exception as exc:
+        return {"read_error": str(exc), "cache_file": str(cp)}
+
+
+def _build_data_provenance(
+    *,
+    scope_codes: list[str],
+    fetch: dict[str, Any],
+    prefetch_triggered: bool,
+    prefetch_exception_missing: set[str],
+    cache_dir: Path,
+    days: int,
+    data_time_max: str,
+) -> dict[str, Any]:
+    """Build run-level and per-stock data provenance for the current run."""
+    prefetch_report = fetch.get("prefetch_report") or {}
+    cached_codes = fetch.get("cached_codes", [])
+    failed_codes = fetch.get("failed_codes", [])
+    stale_codes = fetch.get("stale_codes", [])
+    missing_codes = fetch.get("missing_codes", [])
+
+    cached_set = set(cached_codes)
+    failed_set = set(failed_codes) | set(prefetch_exception_missing)
+    stale_set = set(stale_codes)
+    missing_set = set(missing_codes) | set(prefetch_exception_missing)
+
+    fetched_meta = {
+        item.get("code"): item
+        for item in prefetch_report.get("fetched_codes", [])
+        if isinstance(item, dict) and item.get("code")
+    }
+    fetched_set = set(fetched_meta) | set(_extract_code_list(prefetch_report.get("recovered_codes", [])))
+    cache_hit_set = set(_extract_code_list(prefetch_report.get("cache_hit_codes", [])))
+
+    per_stock: dict[str, dict[str, Any]] = {}
+    for code in scope_codes:
+        meta = _read_cached_kline_meta(cache_dir, code, days)
+        if code in failed_set:
+            source = "failed"
+            is_new_fetch = False
+            is_degraded = True
+            trust = "none"
+        elif code in stale_set:
+            source = "stale_cache"
+            is_new_fetch = False
+            is_degraded = True
+            trust = "low"
+        elif code in fetched_set:
+            provider = fetched_meta.get(code, {}).get("provider") or meta.get("provider") or "provider_fetch"
+            source = provider
+            is_new_fetch = True
+            is_degraded = False
+            trust = "high"
+        elif code in cached_set or code in cache_hit_set:
+            source = "cache"
+            is_new_fetch = False
+            is_degraded = False
+            trust = "high"
+        elif code in missing_set:
+            source = "missing"
+            is_new_fetch = False
+            is_degraded = True
+            trust = "none"
+        else:
+            source = "not_required"
+            is_new_fetch = False
+            is_degraded = False
+            trust = "not_applicable"
+
+        latest_date = (
+            fetched_meta.get(code, {}).get("latest_date")
+            or meta.get("latest_date")
+            or ""
+        )
+        per_stock[code] = {
+            "source": source,
+            "is_new_fetch": is_new_fetch,
+            "is_degraded": is_degraded,
+            "latest_date": str(latest_date)[:10],
+            "trust_level": trust,
+        }
+        if meta.get("read_error"):
+            per_stock[code]["cache_read_error"] = meta["read_error"]
+
+    fetched_new = prefetch_report.get("fetched_ok", 0) if prefetch_triggered else 0
+    return {
+        "fetch_mode": "prefetch" if prefetch_triggered else "cache_only",
+        "total": len(scope_codes),
+        "fetched_new": fetched_new,
+        "from_cache": len(cached_codes),
+        "failed": len(failed_set),
+        "degraded": len(stale_codes),
+        "oldest_data_date": data_time_max or "",
+        "per_stock": per_stock,
+    }
+
+
 # ── Producer 加载 ─────────────────────────────────────────────────────
 
 def _load_producer_run(skill_id: str):
@@ -332,6 +462,38 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
     if scope_codes:
         _log_code_waterfall("来源股票", scope_codes, limit=5000)
 
+    # ── G4-Bridge: constrained mode（已有池与问财结果取交集）──────────
+    bridge_cfg = strategy.get("bridge") or {}
+    bridge_mode = bridge_cfg.get("mode", "")
+    bridge_result: dict[str, Any] = {"mode": bridge_mode, "applied": False}
+
+    if bridge_mode == "constrained" and bridge_cfg.get("wencai_query"):
+        _log("INFO", f"  Bridge constrained mode: 问财筛选已有股票池")
+        from sources import wencai_source as _ws
+        _ws_result = _ws.run(
+            query=bridge_cfg["wencai_query"],
+            limit=bridge_cfg.get("wencai_limit", 300),
+        )
+        wencai_pool = set(_ws_result.get("scope_codes", []))
+        before_n = len(scope_codes)
+        scope_codes = [c for c in scope_codes if c in wencai_pool]
+        scope["scope_codes"] = scope_codes
+        scope["scope_count"] = len(scope_codes)
+        bridge_result.update({
+            "applied": True,
+            "wencai_query": bridge_cfg["wencai_query"],
+            "wencai_returned": len(wencai_pool),
+            "pool_before": before_n,
+            "pool_after": len(scope_codes),
+            "description": (
+                f"constrained mode: 原始池 {before_n} 只 ∩ 问财 {len(wencai_pool)} 只 "
+                f"= {len(scope_codes)} 只"
+            ),
+        })
+        _log("INFO",
+             f"  Bridge: 原始池 {before_n} → 交集后 {len(scope_codes)}  "
+             f"问财返回 {len(wencai_pool)}")
+
     if scope.get("status") not in ("ok",):
         warnings.append(f"来源解析警告: {scope.get('error')}")
         if not scope_codes:
@@ -356,10 +518,17 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
     params = strategy.get("params", {})
 
     cache_dir = _PROJECT_ROOT / "var" / "cache" / "kline_daily"
+    # 从用户参数提取最大回溯天数，驱动 K线规划和缓存指纹，不得退回固定 365
+    max_lookback_days: int = max(
+        (params.get("skills", {}).get(s, {}).get("days", params.get("days", 365))
+         for s in selected_skills),
+        default=params.get("days", 365),
+    )
     fetch = fetch_planner.plan(
         scope_codes=scope_codes,
         selected_skills=selected_skills,
         cache_dir=cache_dir,
+        lookback_days=max_lookback_days,
     )
     _log("INFO",
          f"  readiness={fetch['readiness']}  "
@@ -402,6 +571,8 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
             "mask_cache_hits": 0,
             "mask_cache_misses": 0,
             "api_called": api_called,
+            "actual_days_used": max_lookback_days,
+            "bridge_result": {"mode": "", "applied": False},
             "v5_modified": False,
             "v6_modified": False,
         }
@@ -450,6 +621,7 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
                 scope_codes=scope_codes,
                 selected_skills=selected_skills,
                 cache_dir=cache_dir,
+                lookback_days=max_lookback_days,
             )
             _log("INFO",
                  f"  重规划后 readiness={fetch['readiness']}  "
@@ -473,6 +645,7 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
         _data_time_max = _mask_cache.compute_scope_data_time_max(
             codes=scope_codes,
             cache_dir=cache_dir,
+            days=max_lookback_days,
         )
     except Exception:
         pass
@@ -769,6 +942,7 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
     expression_spec = expression_auto_generator.generate(
         producer_results=producer_results,
         graph=graph,
+        pre_exclude_codes=pre_exclude_codes,
     )
     warnings.extend(expression_spec.get("warnings", []))
     for w in expression_spec.get("warnings", []):
@@ -777,8 +951,25 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
     _log("INFO", "步骤 7/8: 执行表达式")
     final_hit_codes: list[str] = []
 
-    if pre_exclude_codes is not None:
-        # sequential / simple_hybrid: 正向结果已在 step 5 算好，只需 EXCLUDE 负向
+    mask_registry: dict[str, list[str]] = {}
+    for prod in producer_results:
+        mid = prod.get("mask_id", "")
+        if mid:
+            mask_registry[mid] = prod.get("hit_codes", [])
+
+    steps = expression_spec.get("steps", [])
+
+    if pre_exclude_codes is not None and steps and _V6_AVAILABLE:
+        # sequential / simple_hybrid: Producer 已按动态 scope 生成各步 mask，
+        # 这里仍通过 expression steps 做最终 SEQUENCE / EXCLUDE 收口。
+        final_hit_codes, step_summaries = _run_expression_steps(steps, mask_registry)
+        for s in step_summaries:
+            _log("INFO", s)
+        _log("INFO",
+             f"  {path_type}: 动态正向结果 {len(pre_exclude_codes)}  "
+             f"表达式收口后 {len(final_hit_codes)}")
+    elif pre_exclude_codes is not None:
+        # V6 表达式运行器不可用时保留原语义兜底。
         neg_hits: set[str] = set()
         for _r in producer_results:
             if _r.get("hit_semantics") == "negative":
@@ -790,14 +981,6 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
              f"最终 {len(final_hit_codes)}")
     else:
         # parallel_and: expression runner (AND + EXCLUDE)
-        mask_registry: dict[str, list[str]] = {}
-        for prod in producer_results:
-            mid = prod.get("mask_id", "")
-            if mid:
-                mask_registry[mid] = prod.get("hit_codes", [])
-
-        steps = expression_spec.get("steps", [])
-
         if _V6_AVAILABLE and steps:
             final_hit_codes, step_summaries = _run_expression_steps(steps, mask_registry)
             for s in step_summaries:
@@ -812,6 +995,34 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
 
     _log("INFO", f"  最终命中: {len(final_hit_codes)} 只")
 
+    # ── G4-Bridge: second-pass annotate mode（对已命中股票附加问财标签）
+    if bridge_mode == "annotate" and bridge_cfg.get("wencai_query") and final_hit_codes:
+        _log("INFO", "  Bridge annotate mode: 问财标注最终命中股票")
+        from sources import wencai_source as _ws
+        _ws_result = _ws.run(
+            query=bridge_cfg["wencai_query"],
+            limit=bridge_cfg.get("wencai_limit", max(len(final_hit_codes) * 2, 300)),
+        )
+        wencai_annotated = set(_ws_result.get("scope_codes", []))
+        bridge_annotations = {
+            code: {"in_wencai": code in wencai_annotated}
+            for code in final_hit_codes
+        }
+        bridge_result.update({
+            "applied": True,
+            "wencai_query": bridge_cfg["wencai_query"],
+            "wencai_returned": len(wencai_annotated),
+            "annotated_count": sum(1 for v in bridge_annotations.values() if v["in_wencai"]),
+            "annotations": bridge_annotations,
+            "description": (
+                f"annotate mode: {len(final_hit_codes)} 只命中中 "
+                f"{sum(1 for v in bridge_annotations.values() if v['in_wencai'])} 只也在问财结果中"
+            ),
+        })
+        _log("INFO",
+             f"  Bridge annotate: {bridge_result['annotated_count']}/{len(final_hit_codes)} 只"
+             f" 在问财结果中")
+
     # ── 8. 中文解释 & 报告 ────────────────────────────────────────────
     _log("INFO", "步骤 8/8: 生成中文解释与报告")
     explanations = explanation_builder.build(
@@ -820,6 +1031,28 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
         expr_metadata=expression_spec.get("metadata", {}),
         failed_codes=fetch.get("failed_codes", []),
         stale_codes=fetch.get("stale_codes", []),
+    )
+
+    # G5: data_provenance 汇总 + 逐股血缘
+    data_provenance: dict[str, Any] = _build_data_provenance(
+        scope_codes=scope_codes,
+        fetch=fetch,
+        prefetch_triggered=_prefetch_triggered,
+        prefetch_exception_missing=_prefetch_exception_missing,
+        cache_dir=cache_dir,
+        days=max_lookback_days,
+        data_time_max=_data_time_max,
+    )
+
+    # G2: 五层全局解释
+    global_explanation = explanation_builder.build_global_explanation(
+        scope=scope,
+        fetch_plan=fetch,
+        producer_results=producer_results,
+        expression_spec=expression_spec,
+        final_hit_codes=final_hit_codes,
+        path_type=path_type,
+        data_provenance=data_provenance,
     )
 
     elapsed = round(time.time() - t_start, 2)
@@ -850,6 +1083,8 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
         "final_hit_codes": final_hit_codes,
         "final_hit_count": len(final_hit_codes),
         "explanations": explanations,
+        "global_explanation": global_explanation,
+        "data_provenance": data_provenance,
         "warnings": warnings,
         "env_read": env_read,
         "prefetch_triggered": _prefetch_triggered,
@@ -860,6 +1095,8 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
             1 for r in producer_results if r.get("mask_cache_hit") is False
         ),
         "api_called": api_called,
+        "actual_days_used": max_lookback_days,
+        "bridge_result": bridge_result,
         "v5_modified": False,
         "v6_modified": False,
     }
@@ -936,6 +1173,12 @@ def _error_result(
         "mask_cache_misses": 0,
         "env_read": env_read,
         "api_called": api_called,
+        "actual_days_used": max(
+            (strategy.get("params", {}).get("skills", {}).get(s, {}).get("days",
+             strategy.get("params", {}).get("days", 365))
+             for s in strategy.get("skills", [])),
+            default=strategy.get("params", {}).get("days", 365),
+        ),
         "v5_modified": False,
         "v6_modified": False,
     }

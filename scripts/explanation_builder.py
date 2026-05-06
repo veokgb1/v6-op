@@ -261,3 +261,148 @@ def build(
         "soft_filter_mode_active": bool(soft_filter_skills),
         "weak_signal_active": bool(weak_signal_skills),
     }
+
+
+def build_global_explanation(
+    scope: dict[str, Any],
+    fetch_plan: dict[str, Any],
+    producer_results: list[dict[str, Any]],
+    expression_spec: dict[str, Any],
+    final_hit_codes: list[str],
+    path_type: str,
+    *,
+    data_provenance: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    G2: 构建五层全局解释契约。
+    命中 0 时通过 why_zero 指出是哪一层导致清零。
+    """
+    final_count = len(final_hit_codes)
+
+    # ── 来源层 ────────────────────────────────────────────────────────
+    src_status = scope.get("status", "unknown")
+    src_count = scope.get("scope_count", 0)
+    src_type = scope.get("source_type", "unknown")
+    source_layer: dict[str, Any] = {
+        "source_type": src_type,
+        "status": src_status,
+        "actual_count": src_count,
+        "api_called": scope.get("api_called", False),
+        "query_text": scope.get("query_text", ""),
+        "count_note": scope.get("count_note", ""),
+        "ok": src_count > 0,
+        "suggestion": (
+            "来源返回 0 只股票，请检查查询条件、接口授权或切换来源" if src_count == 0 else ""
+        ),
+    }
+
+    # ── 数据层 ────────────────────────────────────────────────────────
+    cached = len(fetch_plan.get("cached_codes", []))
+    missing = len(fetch_plan.get("missing_codes", []))
+    failed = len(fetch_plan.get("failed_codes", []))
+    stale = len(fetch_plan.get("stale_codes", []))
+    readiness = fetch_plan.get("readiness", "unknown")
+    dp = data_provenance or {}
+    data_layer: dict[str, Any] = {
+        "readiness": readiness,
+        "cached": cached,
+        "missing": missing,
+        "failed": failed,
+        "stale": stale,
+        "fetched_new": dp.get("fetched_new", 0),
+        "degraded": dp.get("degraded", 0),
+        "oldest_data_date": dp.get("oldest_data_date", ""),
+        "ok": failed == 0 and readiness != "aborted",
+        "suggestion": (
+            f"K线取数失败 {failed} 只，可能减少可分析股票数量" if failed > 0 else (
+                "K线就绪率低，请检查网络或缓存目录" if readiness == "aborted" else ""
+            )
+        ),
+    }
+
+    # ── 技能层 ────────────────────────────────────────────────────────
+    skill_stats: list[dict[str, Any]] = []
+    first_zero_skill = ""
+    for prod in producer_results:
+        sid = prod.get("skill_id", "?")
+        semantics = prod.get("hit_semantics", "positive")
+        in_count = prod.get("total_in", prod.get("miss_count", 0) + prod.get("hit_count", 0))
+        hit_count = prod.get("hit_count", 0)
+        stat: dict[str, Any] = {
+            "skill_id": sid,
+            "hit_semantics": semantics,
+            "input_count": in_count,
+            "hit_count": hit_count,
+            "miss_count": prod.get("miss_count", 0),
+            "status": prod.get("status", "ok"),
+        }
+        if semantics == "positive" and hit_count == 0 and not first_zero_skill:
+            first_zero_skill = sid
+        skill_stats.append(stat)
+    skill_layer: dict[str, Any] = {
+        "skills": skill_stats,
+        "first_zero_skill": first_zero_skill,
+        "ok": final_count > 0 or not any(
+            s["hit_semantics"] == "positive" and s["hit_count"] == 0
+            for s in skill_stats
+        ),
+        "suggestion": (
+            f"技能 {first_zero_skill} 命中 0，是技能层清零来源，可尝试放宽该技能参数"
+            if first_zero_skill else ""
+        ),
+    }
+
+    # ── 路径层 ────────────────────────────────────────────────────────
+    steps = expression_spec.get("steps", [])
+    path_zero_step = ""
+    for step in steps:
+        # 每步记录的中间结果数（若有）
+        if step.get("output_count", -1) == 0 and not path_zero_step:
+            path_zero_step = step.get("expression_id", "")
+    path_layer: dict[str, Any] = {
+        "path_type": path_type,
+        "step_count": len(steps),
+        "first_zero_step": path_zero_step,
+        "ok": final_count > 0 or path_type not in ("sequential", "parallel_and", "simple_hybrid"),
+        "suggestion": (
+            f"路径步骤 {path_zero_step} 输出 0，顺序漏斗在此清零，可检查各步逻辑"
+            if path_zero_step else (
+                "并行 AND 交集为空，各技能命中集合没有共同股票，可改为 K_OF_N 模式"
+                if path_type == "parallel_and" and final_count == 0 else ""
+            )
+        ),
+    }
+
+    # ── 报告层 ────────────────────────────────────────────────────────
+    report_layer: dict[str, Any] = {
+        "final_hit_count": final_count,
+        "has_explanation": len(producer_results) > 0,
+        "ok": True,
+        "suggestion": "命中 0，请参考上层原因定位清零来源" if final_count == 0 else "",
+    }
+
+    # ── why_zero 归因 ────────────────────────────────────────────────
+    why_zero: str = ""
+    if final_count == 0:
+        if src_count == 0:
+            why_zero = f"source_layer: {src_type} 来源返回 0 只股票"
+        elif failed > 0 and cached == 0:
+            why_zero = f"data_layer: K线取数全部失败（{failed} 只），无可分析数据"
+        elif first_zero_skill:
+            why_zero = f"skill_layer: 技能 {first_zero_skill} 命中 0，最先清零"
+        elif path_zero_step:
+            why_zero = f"path_layer: 路径步骤 {path_zero_step} 输出 0"
+        elif path_type == "parallel_and":
+            why_zero = "path_layer: parallel_and 交集为空，各技能命中集合无共同股票"
+        else:
+            why_zero = "report_layer: 命中 0，原因不明，请检查所有层日志"
+
+    return {
+        "source_layer": source_layer,
+        "data_layer": data_layer,
+        "skill_layer": skill_layer,
+        "path_layer": path_layer,
+        "report_layer": report_layer,
+        "why_zero": why_zero,
+        "final_hit_count": final_count,
+    }

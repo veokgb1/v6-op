@@ -336,6 +336,16 @@ class TestV6OP007WebAssets:
         assert "wencai-limit" in js, "app.js buildStrategy 未读取 wencai-limit 输入"
         assert "source.limit" in js, "app.js 未向 source 对象写入 limit"
 
+    def test_index_has_bridge_controls(self, html):
+        assert "bridge-enabled" in html, "index.html 缺少 Bridge 启用控件"
+        assert "bridge-mode" in html, "index.html 缺少 Bridge 模式控件"
+        assert "bridge-query" in html, "index.html 缺少 Bridge 问财语句输入"
+
+    def test_app_js_sends_bridge_strategy(self, js):
+        assert "strategy.bridge" in js, "app.js buildStrategy 未向策略写入 bridge"
+        assert "wencai_query" in js, "app.js Bridge 未发送 wencai_query"
+        assert "wencai_limit" in js, "app.js Bridge 未发送 wencai_limit"
+
     # ── 全 A 扫描保护 UI ──────────────────────────────────────────────
 
     def test_index_all_a_has_warn_element(self, html):

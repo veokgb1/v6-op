@@ -197,8 +197,9 @@ def _write_cache(code: str, days: int, df: pd.DataFrame) -> None:
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
         with open(cache_path(code, days), "wb") as f:
             pickle.dump(df, f)
-    except Exception:
-        pass
+    except Exception as exc:
+        # G5: 写缓存失败必须有日志，不得静默吞掉
+        print(f"  [ohlcv] ⚠ 写缓存失败 {code}_{days}d.pkl: {exc}", flush=True)
 
 
 # ── 数据源实现 ────────────────────────────────────────────────────────
@@ -325,6 +326,12 @@ def fetch_ohlcv(
     cached = _read_cache(code, days, allow_stale=False)
     if cached is not None:
         _stats["cache_hit"] += 1
+        # G5 provenance
+        cached.attrs.setdefault("source", "cache")
+        cached.attrs["is_new_fetch"] = False
+        cached.attrs["is_degraded"] = False
+        cached.attrs["latest_date"] = str(cached.index[-1])[:10] if len(cached) > 0 else ""
+        cached.attrs["trust_level"] = "high"
         if verbose:
             print(f"  [ohlcv] {code} ← cache  {len(cached)} 根", flush=True)
         return cached
@@ -346,6 +353,10 @@ def fetch_ohlcv(
                 df = df.sort_index()
                 df.attrs["source"] = "baostock"
                 df.attrs["adjust"] = "hfq"
+                df.attrs["is_new_fetch"] = True
+                df.attrs["is_degraded"] = False
+                df.attrs["latest_date"] = str(df.index[-1])[:10] if len(df) > 0 else ""
+                df.attrs["trust_level"] = "high"
                 _write_cache(code, days, df)
                 _stats["baostock_ok"] += 1
                 if verbose:
@@ -363,6 +374,10 @@ def fetch_ohlcv(
                 df = df.sort_index()
                 df.attrs["source"] = name
                 df.attrs["adjust"] = "hfq"
+                df.attrs["is_new_fetch"] = True
+                df.attrs["is_degraded"] = False
+                df.attrs["latest_date"] = str(df.index[-1])[:10] if len(df) > 0 else ""
+                df.attrs["trust_level"] = "high"
                 _write_cache(code, days, df)
                 _stats[f"{name}_ok"] = _stats.get(f"{name}_ok", 0) + 1
                 if verbose:
@@ -378,6 +393,12 @@ def fetch_ohlcv(
     stale = _read_cache(code, days, allow_stale=True)
     if stale is not None:
         _stats["stale_used"] += 1
+        # G5 provenance: 旧缓存降级标注
+        stale.attrs.setdefault("source", "stale_cache")
+        stale.attrs["is_new_fetch"] = False
+        stale.attrs["is_degraded"] = True
+        stale.attrs["latest_date"] = str(stale.index[-1])[:10] if len(stale) > 0 else ""
+        stale.attrs["trust_level"] = "low"
         print(f"  [ohlcv] ⚠ {code} 使用过期缓存({stale.attrs.get('cache_age_h', '?')}h)", flush=True)
         return stale
 

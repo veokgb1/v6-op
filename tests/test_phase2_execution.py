@@ -177,6 +177,114 @@ class TestFetchPlanner:
             tmp_path.unlink(missing_ok=True)
 
 
+class TestPhase2DataProvenance:
+    def test_per_stock_provenance_is_filled(self, tmp_path):
+        import pickle
+        import pandas as pd
+        import execution_engine as ee
+
+        cache_dir = tmp_path / "kline_daily"
+        cache_dir.mkdir()
+        df = pd.DataFrame(
+            {"open": [1.0], "high": [1.0], "low": [1.0], "close": [1.0], "volume": [1], "amount": [1.0]},
+            index=pd.to_datetime(["2026-05-06"]),
+        )
+        df.attrs["source"] = "baostock"
+        with open(cache_dir / "000001_SZ_365d.pkl", "wb") as f:
+            pickle.dump(df, f)
+
+        prov = ee._build_data_provenance(
+            scope_codes=["000001.SZ", "000002.SZ", "000003.SZ"],
+            fetch={
+                "cached_codes": ["000001.SZ", "000002.SZ"],
+                "failed_codes": ["000003.SZ"],
+                "stale_codes": ["000002.SZ"],
+                "missing_codes": [],
+                "prefetch_report": {},
+            },
+            prefetch_triggered=False,
+            prefetch_exception_missing=set(),
+            cache_dir=cache_dir,
+            days=365,
+            data_time_max="2026-05-06",
+        )
+
+        assert set(prov["per_stock"]) == {"000001.SZ", "000002.SZ", "000003.SZ"}
+        assert prov["per_stock"]["000001.SZ"]["source"] == "cache"
+        assert prov["per_stock"]["000001.SZ"]["latest_date"] == "2026-05-06"
+        assert prov["per_stock"]["000002.SZ"]["is_degraded"] is True
+        assert prov["per_stock"]["000003.SZ"]["trust_level"] == "none"
+
+
+class TestPhase2BridgeCapability:
+    def test_bridge_constrained_limits_existing_pool(self, monkeypatch, tmp_path):
+        import execution_engine as ee
+        import fetch_planner
+        from sources import wencai_source
+
+        monkeypatch.setattr(ee, "_OUTPUT_ROOT", tmp_path / "output")
+        monkeypatch.setattr(ee, "_MASK_CACHE_DIR", tmp_path / "mask_cache")
+        monkeypatch.setattr(
+            wencai_source,
+            "run",
+            lambda query, limit=300: {
+                "status": "ok",
+                "scope_codes": ["000002.SZ", "000003.SZ"],
+                "scope_count": 2,
+            },
+        )
+        monkeypatch.setattr(
+            fetch_planner,
+            "plan",
+            lambda scope_codes, selected_skills, cache_dir=None, lookback_days=365, **kw: {
+                "prefetch_required": False,
+                "prefetch_plan": {},
+                "prefetch_report": {},
+                "readiness": "ready",
+                "cached_codes": list(scope_codes),
+                "missing_codes": [],
+                "failed_codes": [],
+                "stale_codes": [],
+                "available_codes": list(scope_codes),
+                "failure_rate": 0.0,
+                "cache_dir": str(tmp_path / "kline_daily"),
+                "lookback_days": lookback_days,
+                "kline_skills": ["kline"],
+                "generated_at": "2026-05-06T00:00:00",
+            },
+        )
+
+        def fake_loader(skill_id):
+            def _run(codes, cache_dir=None, **kw):
+                return {
+                    "skill_id": skill_id,
+                    "skill_name": skill_id,
+                    "hit_semantics": "positive",
+                    "hit_codes": list(codes),
+                    "miss_codes": [],
+                    "hit_count": len(codes),
+                    "miss_count": 0,
+                    "evidence": {},
+                    "mask_id": f"{skill_id}_bridge_mock",
+                    "params": {},
+                }
+            return _run
+
+        monkeypatch.setattr(ee, "_load_producer_run", fake_loader)
+        result = ee.execute({
+            "source": {"type": "manual", "codes": ["000001.SZ", "000002.SZ"]},
+            "bridge": {"mode": "constrained", "wencai_query": "测试概念", "wencai_limit": 300},
+            "skills": ["kline"],
+            "path_type": "parallel_and",
+            "params": {},
+        })
+
+        assert result["bridge_result"]["applied"] is True
+        assert result["bridge_result"]["pool_before"] == 2
+        assert result["bridge_result"]["pool_after"] == 1
+        assert result["scope"]["scope_codes"] == ["000002.SZ"]
+
+
 # ══════════════════════════════════════════════════════════════════════
 # TestStrategyGraphBuilder
 # ══════════════════════════════════════════════════════════════════════
@@ -304,6 +412,42 @@ class TestExpressionAutoGenerator:
         )
         spec = expression_auto_generator.generate(self._make_producer_results(), graph)
         ops = [s["op"] for s in spec["steps"]]
+        assert "EXCLUDE" in ops
+
+    def test_sequential_generates_executable_sequence_steps(self):
+        import expression_auto_generator
+        import strategy_graph_builder
+        from skill_registry import SKILL_REGISTRY
+        registry = {s["skill_id"]: s for s in SKILL_REGISTRY}
+        graph = strategy_graph_builder.build(
+            ["czsc", "kline", "landmine"], registry, "sequential"
+        )
+        spec = expression_auto_generator.generate(
+            self._make_producer_results(),
+            graph,
+            pre_exclude_codes=["000001.SZ"],
+        )
+        assert spec["executable"] is True
+        assert spec["steps"], "sequential 应生成可执行 expression steps"
+        assert spec["steps"][0]["op"] == "SEQUENCE"
+        assert spec["primary_expression_id"] is not None
+
+    def test_simple_hybrid_generates_and_then_sequence_steps(self):
+        import expression_auto_generator
+        import strategy_graph_builder
+        from skill_registry import SKILL_REGISTRY
+        registry = {s["skill_id"]: s for s in SKILL_REGISTRY}
+        graph = strategy_graph_builder.build(
+            ["czsc", "kline", "landmine"], registry, "simple_hybrid"
+        )
+        spec = expression_auto_generator.generate(
+            self._make_producer_results(),
+            graph,
+            pre_exclude_codes=["000001.SZ"],
+        )
+        ops = [s["op"] for s in spec["steps"]]
+        assert spec["executable"] is True
+        assert "AND" in ops
         assert "EXCLUDE" in ops
 
     def test_smc_soft_filter_labeled(self):
@@ -639,6 +783,9 @@ class TestRunReport:
         paths = run_report.generate(dummy_result, tmp_path)
         assert paths["report_json_path"].exists()
         assert paths["report_md_path"].exists()
+        report = json.loads(paths["report_json_path"].read_text(encoding="utf-8"))
+        assert report["strategy_snapshot"] == dummy_result["strategy"], \
+            "run_report.json 必须保留原始 strategy 快照，供历史参数恢复使用"
 
     def test_markdown_contains_required_sections(self, tmp_path):
         import run_report
@@ -1023,6 +1170,7 @@ class TestV6OP006Corrections:
             "run_id", "final_hit_codes", "final_hit_count",
             "explanations", "failed_codes", "stale_codes",
             "data_coverage", "producer_summary", "expression", "warnings",
+            "strategy_snapshot", "bridge_result", "data_provenance",
         ]
         for f in required_fields:
             assert f in report, f"run_report.json 缺少字段: {f}"

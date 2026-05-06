@@ -13,16 +13,21 @@
   <h1>V6OP 操盘台</h1>
   <div id="health-dot" class="health-dot" title="后端状态"></div>
   <span id="health-label" class="health-label">检测中…</span>
-  <span class="version">v6-op Phase 3</span>
+  <span class="version">v6-op P2</span>
+  <!-- G6: 管理中心入口，不含运行功能 -->
+  <button id="btn-mgmt-open" class="btn btn-sm" type="button"
+    style="margin-left:auto;background:var(--muted-bg,#2a2a2a);color:var(--fg)">
+    ⚙ 管理中心
+  </button>
 </header>
 
 <!-- ── 主体三栏 ──────────────────────────────────────────────────── -->
 <main class="console-layout">
 
-  <!-- ══ 左侧：来源 + 技能 + 路径 + 启动 ═══════════════════════════ -->
+  <!-- ══ 左侧：来源 + 技能 + 路径 + 启动（G6 主操盘台前4项）══════ -->
   <section class="panel" aria-label="参数配置">
 
-    <!-- 股票来源 -->
+    <!-- G6 Item 1: 股票来源选择 -->
     <div>
       <div class="section-title">股票来源</div>
       <div class="radio-group">
@@ -57,10 +62,11 @@
             <option value="500">TEST 500</option>
             <option value="1000">PRO 1000</option>
             <option value="2000">PRO 2000</option>
-            <option value="5000">PRO 5000（上限）</option>
+            <!-- G3: 全A 5000 语义：本地A股名单截取，非问财 -->
+            <option value="5000">PRO 5000（本地名单截取上限）</option>
           </select>
         </div>
-        <div class="form-hint">默认 STABLE 300；超过 500 只需确认才能运行</div>
+        <div class="form-hint" id="all-a-limit-hint">默认 STABLE 300；超过 500 只需确认才能运行</div>
         <div id="all-a-warn" class="alert alert-warn mt4 hidden">
           <span class="alert-icon">⚠️</span>
           <span id="all-a-warn-text">扫描只数较多，耗时可能较长。</span>
@@ -101,16 +107,13 @@
             <button id="btn-scan" class="btn btn-sm" type="button">🔍 扫描板块</button>
             <span id="scan-spinner" class="spinner hidden"></span>
           </div>
-          <!-- 扫描结果 checklist -->
           <div id="sector-checklist" class="hidden mt4"></div>
-          <!-- 确认按钮 -->
           <div id="sector-confirm-row" class="hidden mt4">
             <button id="btn-confirm-sectors" class="btn btn-sm"
               style="background:var(--green);color:#000;font-weight:700" type="button">
               ✔ 确认所选板块
             </button>
           </div>
-          <!-- 已确认 chips -->
           <div id="sector-confirmed" class="sector-confirmed-chips mt4" style="display:none"></div>
           <div class="form-hint mt4">Phase A 扫描预览，不启动管道。确认后 Phase B 拼入 wencai query 运行。</div>
         </div>
@@ -130,7 +133,6 @@
             <button class="preset-btn" type="button" data-preset="P6">P6</button>
           </div>
 
-          <!-- 问财收藏 -->
           <div class="fav-bar" id="wencai-fav-bar"></div>
 
           <input type="text" id="wencai-query" placeholder="例如：净利润增速大于 20%" />
@@ -144,16 +146,52 @@
               <option value="500">TEST 500</option>
               <option value="1000">PRO 1000</option>
               <option value="2000">PRO 2000</option>
-              <option value="5000">PRO 5000</option>
+              <!-- G3: 问财 5000 语义：最多接收返回结果，不保证返回这么多 -->
+              <option value="5000">PRO 5000（最多接收问财返回结果）</option>
             </select>
           </div>
-          <div class="form-hint">Key 缺失或接口失败时显示中文提示，不伪造成功</div>
+          <!-- G3: 动态语义提示 -->
+          <div id="wencai-limit-hint" class="form-hint">Key 缺失或接口失败时显示中文提示，不伪造成功</div>
         </div>
 
       </div><!-- /src-wencai -->
+
+      <!-- G4 Bridge Capability：对当前股票池做二次问财约束或标注 -->
+      <div id="bridge-panel" class="bridge-panel mt8">
+        <label class="bridge-toggle">
+          <input type="checkbox" id="bridge-enabled" />
+          <span>问财二次验证 Bridge</span>
+          <span class="tag tag-ok">可选</span>
+        </label>
+        <div id="bridge-config" class="bridge-config hidden">
+          <div class="form-row mt4">
+            <label for="bridge-mode">模式</label>
+            <select id="bridge-mode">
+              <option value="constrained">约束当前股票池</option>
+              <option value="annotate">只给最终命中加标签</option>
+            </select>
+          </div>
+          <input type="text" id="bridge-query" class="mt4"
+            placeholder="例如：属于人工智能概念，或近5日主力资金净流入" />
+          <div class="form-row mt4" style="gap:4px;flex-wrap:wrap;align-items:center">
+            <label for="bridge-limit">问财上限</label>
+            <select id="bridge-limit">
+              <option value="100">100</option>
+              <option value="300" selected>300</option>
+              <option value="500">500</option>
+              <option value="1000">1000</option>
+              <option value="2000">2000</option>
+              <option value="5000">5000</option>
+            </select>
+          </div>
+          <div class="form-hint" id="bridge-hint">
+            约束模式会先用问财结果与当前股票池取交集；标注模式不改变命中列表，只附加标签。
+          </div>
+        </div>
+      </div>
     </div>
 
-    <!-- 技能选择 -->
+    <!-- G6 Item 2: 技能选择 -->
     <div>
       <div class="section-title">技能选择</div>
       <div id="skill-list" class="checkbox-group">
@@ -161,7 +199,7 @@
       </div>
     </div>
 
-    <!-- 路径类型 -->
+    <!-- G6 Item 3: 执行路径 -->
     <div>
       <div class="section-title">执行路径</div>
       <div class="radio-group">
@@ -184,23 +222,7 @@
       <div class="form-hint mt4">sequential / parallel_and / simple_hybrid 三种固定路径</div>
     </div>
 
-    <!-- 压力测试操作手册 -->
-    <details class="ops-guide">
-      <summary>
-        压力测试怎么跑
-        <button class="info-btn" type="button" data-help="stress-guide" aria-label="压力测试说明">i</button>
-      </summary>
-      <div class="ops-guide-body">
-        <div><b>1. 全A PRO 5000</b>：从本地A股名单最多取 5000 只；当前名单超过 5000，所以不是无上限完整。</div>
-        <div><b>2. 问财 PRO 5000</b>：最多取 5000 条问财结果；少于 5000 拿实际数，多于 5000 截断。</div>
-        <div><b>3. 全技能硬交集</b>：缠论 + K线 + SMC + 波浪 + 排雷一起卡，结果为 0 很正常。</div>
-        <div><b>4. 换技能重跑</b>：会重新启动一轮；K线数据库通常复用，不会自动清掉重拉。</div>
-        <div><b>5. 换路径重跑</b>：并行/顺序/混合会重新组合技能；已有K线继续用，技能结果能否复用看股票池和参数是否一样。</div>
-        <div><b>6. 先宽后严</b>：先用少量正向技能 + 排雷跑出池子，再加技能或换路径精算。</div>
-      </div>
-    </details>
-
-    <!-- 启动管道 -->
+    <!-- G6 Item 4: 启动按钮 + 实时进度状态区 -->
     <div>
       <div class="section-title">启动管道</div>
       <div class="flex" style="gap:6px;flex-wrap:wrap;align-items:center">
@@ -227,10 +249,8 @@
   <!-- ══ 中间：进度 + readiness + 覆盖 + 警告 + 技能摘要 ═══════════ -->
   <section class="panel" aria-label="运行进度">
 
-    <!-- 告警区 -->
     <div id="center-alerts" style="display:flex;flex-direction:column;gap:6px"></div>
 
-    <!-- 进度日志 -->
     <div>
       <div class="section-title">运行日志</div>
       <div id="log-box" class="log-box">
@@ -241,7 +261,6 @@
       </div>
     </div>
 
-    <!-- Readiness -->
     <div>
       <div class="section-title">数据就绪状态</div>
       <div id="readiness-box">
@@ -252,7 +271,6 @@
       </div>
     </div>
 
-    <!-- 数据标记 -->
     <div>
       <div class="section-title section-title-help">
         <span>数据标记</span>
@@ -263,7 +281,6 @@
       </div>
     </div>
 
-    <!-- 本轮取数记录 -->
     <div>
       <div class="section-title section-title-help">
         <span>本轮取数记录</span>
@@ -274,7 +291,6 @@
       </div>
     </div>
 
-    <!-- 警告 -->
     <div>
       <div class="section-title">警告 / 标注</div>
       <div id="warnings-box" class="warnings-list">
@@ -282,7 +298,6 @@
       </div>
     </div>
 
-    <!-- 技能运行摘要 -->
     <div>
       <div class="section-title">技能运行摘要</div>
       <div id="producer-box">
@@ -294,17 +309,16 @@
 
   <div class="resizer" id="resizer-right"></div>
 
-  <!-- ══ 右侧：三标签（命中结果 / 提示词库 / 历史报告）══════════════ -->
+  <!-- ══ 右侧：命中结果 + 提示词库（G6: 历史已移至管理中心）══════ -->
   <section class="panel panel-right" aria-label="命中结果">
 
-    <!-- 标签栏 -->
+    <!-- 标签栏（G6: 去掉历史报告 tab，移入管理中心） -->
     <div class="rtabs">
       <button class="rtab rtab-active" data-rtab="results" type="button">命中结果</button>
       <button class="rtab" data-rtab="prompts" type="button">提示词库</button>
-      <button class="rtab" data-rtab="history" type="button">历史报告</button>
     </div>
 
-    <!-- ─── Tab 1：命中结果 ─────────────────────────────────────── -->
+    <!-- ─── Tab 1：命中结果（G6 Items 5-7）──────────────────────── -->
     <div id="rtab-results" class="rtab-panel">
 
       <div class="flex" style="gap:10px;align-items:baseline;margin-bottom:4px">
@@ -313,6 +327,7 @@
         <span id="hit-scope-hint" style="font-size:11px;color:var(--muted)"></span>
       </div>
 
+      <!-- G6 Item 5: 命中结果列表 -->
       <div id="hit-list" class="hit-list">
         <span class="text-muted" style="font-size:12px">运行后显示命中列表与中文解释</span>
       </div>
@@ -326,10 +341,36 @@
 
       <div id="stale-list" class="stale-list hidden"></div>
 
+      <!-- G6 Item 6: 本轮全局解释（五层诊断，折叠）-->
+      <details id="global-explanation-section" class="result-details hidden">
+        <summary class="result-details-summary">
+          🔍 本轮全局解释（五层诊断）
+          <span id="why-zero-badge" class="tag tag-warn hidden">命中 0 归因</span>
+        </summary>
+        <div id="global-explanation-body" class="result-details-body">
+          <span class="text-muted">运行后显示</span>
+        </div>
+      </details>
+
+      <!-- G6 Item 7: 本轮数据血缘摘要（折叠）-->
+      <details id="data-provenance-section" class="result-details hidden">
+        <summary class="result-details-summary">📊 本轮数据血缘摘要</summary>
+        <div id="data-provenance-body" class="result-details-body">
+          <span class="text-muted">运行后显示</span>
+        </div>
+      </details>
+
+      <details id="bridge-result-section" class="result-details hidden">
+        <summary class="result-details-summary">🔗 Bridge 二次验证结果</summary>
+        <div id="bridge-result-body" class="result-details-body">
+          <span class="text-muted">未启用 Bridge</span>
+        </div>
+      </details>
+
       <div>
         <div class="section-title">报告</div>
         <div id="report-links" class="report-links">
-          <a class="report-link" href="/api/result" target="_blank">📄 execution_result.json</a>
+          <a class="report-link" href="/api/result" target="_blank">📄 run_report.json</a>
           <a class="report-link" href="/api/health" target="_blank">🔍 health 检查</a>
         </div>
       </div>
@@ -370,25 +411,135 @@
       </div>
     </div><!-- /rtab-prompts -->
 
-    <!-- ─── Tab 3：历史报告 ─────────────────────────────────────── -->
-    <div id="rtab-history" class="rtab-panel rtab-panel-hidden">
-      <div class="history-panel">
-        <div class="flex" style="justify-content:space-between;align-items:center;margin-bottom:4px">
-          <span class="section-title" style="margin:0">近期运行记录</span>
-          <button class="btn btn-sm" id="btn-clear-history" type="button">清除全部</button>
-        </div>
-        <div style="font-size:10px;color:var(--muted);margin-bottom:10px">
-          最多保留 20 条 · 本机浏览器存储
-        </div>
-        <div id="history-list">
-          <div class="text-muted" style="font-size:12px">暂无历史记录</div>
-        </div>
-      </div>
-    </div><!-- /rtab-history -->
-
   </section>
 
 </main>
+
+<!-- ══ G6 管理中心 Modal（不含启动运行功能）═══════════════════════════ -->
+<div id="mgmt-overlay" class="mgmt-overlay hidden" role="dialog" aria-modal="true" aria-label="管理中心">
+  <div class="mgmt-modal">
+    <div class="mgmt-modal-header">
+      <h2>⚙ 管理中心</h2>
+      <button id="btn-mgmt-close" class="btn btn-sm" type="button">✕ 关闭</button>
+    </div>
+
+    <div class="mgmt-tabs">
+      <button class="mgmt-tab mgmt-tab-active" data-mtab="history" type="button">历史记录</button>
+      <button class="mgmt-tab" data-mtab="cache" type="button">缓存管理</button>
+      <button class="mgmt-tab" data-mtab="wencai-auth" type="button">问财授权</button>
+      <button class="mgmt-tab" data-mtab="settings" type="button">系统设置</button>
+      <button class="mgmt-tab" data-mtab="help" type="button">帮助文档</button>
+    </div>
+
+    <!-- 历史运行记录（G7: 恢复参数但不启动） -->
+    <div id="mtab-history" class="mgmt-panel">
+      <div class="mgmt-panel-header">
+        <span>近期运行记录（最多 20 条）</span>
+        <button class="btn btn-sm" id="btn-reload-history" type="button">↺ 刷新</button>
+      </div>
+      <div id="mgmt-history-list" class="mgmt-history-list">
+        <div class="text-muted" style="font-size:12px">加载中…</div>
+      </div>
+      <div class="form-hint mt4">
+        点击「恢复参数」将把该次运行参数填回主操盘台，不会自动启动运行。
+      </div>
+    </div>
+
+    <!-- G7: 三层缓存分别清理 -->
+    <div id="mtab-cache" class="mgmt-panel mgmt-panel-hidden">
+      <div class="mgmt-cache-grid">
+        <div class="cache-layer-card">
+          <div class="cache-layer-title">★ 来源快照</div>
+          <div class="cache-layer-desc">问财 / 全A 来源 scope 文件，清理后下次运行重新获取来源</div>
+          <button class="btn btn-sm" id="btn-clear-source" type="button">清理来源快照</button>
+          <div id="clear-source-result" class="cache-clear-result"></div>
+        </div>
+        <div class="cache-layer-card">
+          <div class="cache-layer-title">★★ K线数据库</div>
+          <div class="cache-layer-desc">var/cache/kline_daily/*.pkl，清理后需重新拉取行情数据</div>
+          <button class="btn btn-sm btn-danger-light" id="btn-clear-kline" type="button">清理K线缓存</button>
+          <div id="clear-kline-result" class="cache-clear-result"></div>
+        </div>
+        <div class="cache-layer-card">
+          <div class="cache-layer-title">★★★ 技能结果库</div>
+          <div class="cache-layer-desc">output/mask_cache/*.json，清理后 Producer 重新计算</div>
+          <button class="btn btn-sm btn-danger-light" id="btn-clear-skill" type="button">清理技能缓存</button>
+          <div id="clear-skill-result" class="cache-clear-result"></div>
+        </div>
+      </div>
+      <div class="form-hint mt8">三层缓存互相独立，清理时不会误伤其他层。</div>
+    </div>
+
+    <!-- G4-auth: 问财授权状态检查 -->
+    <div id="mtab-wencai-auth" class="mgmt-panel mgmt-panel-hidden">
+      <div class="mgmt-panel-header">
+        <span>问财授权状态</span>
+        <button class="btn btn-sm" id="btn-check-wencai" type="button">检查</button>
+      </div>
+      <div id="wencai-auth-status" class="mgmt-info-box">
+        <span class="text-muted">点击「检查」查看当前授权状态</span>
+      </div>
+      <div class="form-hint mt8">
+        说明：pywencai 使用 session 认证，不接受 api_key 参数。IWENCAI_API_KEY 在 .env 中的值
+        目前不传入 pywencai.get()，实际认证依赖 pywencai 本地缓存的 session cookie。
+        若问财返回 0 只，请先检查 pywencai session 是否有效。
+      </div>
+    </div>
+
+    <!-- 系统设置 -->
+    <div id="mtab-settings" class="mgmt-panel mgmt-panel-hidden">
+      <div class="mgmt-panel-header"><span>系统设置</span></div>
+      <div id="mgmt-settings-body">
+        <div class="form-row">
+          <label>默认执行路径</label>
+          <select id="setting-default-path">
+            <option value="parallel_and">parallel_and（并行取交集）</option>
+            <option value="sequential">sequential（顺序漏斗）</option>
+            <option value="simple_hybrid">simple_hybrid（简单混合）</option>
+          </select>
+        </div>
+        <div class="form-row mt4">
+          <label>默认 days</label>
+          <select id="setting-default-days">
+            <option value="365">365 天</option>
+            <option value="730">730 天</option>
+            <option value="180">180 天</option>
+          </select>
+        </div>
+        <button class="btn btn-sm mt4" id="btn-save-settings" type="button">保存设置</button>
+        <div id="settings-save-tip" style="font-size:11px;color:var(--green);margin-top:4px;display:none">已保存</div>
+      </div>
+    </div>
+
+    <!-- 帮助文档 -->
+    <div id="mtab-help" class="mgmt-panel mgmt-panel-hidden">
+      <div class="mgmt-panel-header"><span>帮助文档</span></div>
+      <details class="ops-guide" open>
+        <summary>压力测试怎么跑 <button class="info-btn" type="button" data-help="stress-guide" aria-label="压力测试说明">i</button></summary>
+        <div class="ops-guide-body">
+          <div><b>1. 全A PRO 5000</b>：从本地A股名单最多截取 5000 只；这是名单上限，不是问财。</div>
+          <div><b>2. 问财 PRO 5000</b>：最多接收问财返回结果 5000 条；少于 5000 拿实际数，多于截断。</div>
+          <div><b>3. 全技能硬交集</b>：缠论 + K线 + SMC + 波浪 + 排雷一起卡，结果为 0 很正常。</div>
+          <div><b>4. 换技能重跑</b>：会重新启动一轮；K线数据库通常复用，不会自动清掉重拉。</div>
+          <div><b>5. 换路径重跑</b>：并行/顺序/混合会重新组合技能；已有K线继续用。</div>
+          <div><b>6. 先宽后严</b>：先用少量正向技能 + 排雷跑出池子，再加技能或换路径精算。</div>
+          <div><b>7. days 参数</b>：改变 days 会影响 K线取数量、技能分析范围和缓存指纹，不同 days 的结果缓存互不命中。</div>
+        </div>
+      </details>
+      <details class="ops-guide mt4">
+        <summary>全局解释层说明</summary>
+        <div class="ops-guide-body">
+          <div><b>来源层</b>：股票池从哪里来，实际返回多少。</div>
+          <div><b>数据层</b>：K线是否就绪，有多少本地 / 新拉 / 失败 / 降级。</div>
+          <div><b>技能层</b>：每个技能输入多少、命中多少、哪个技能最先筛空。</div>
+          <div><b>路径层</b>：顺序漏斗哪一步清零，并行交集为什么为空。</div>
+          <div><b>报告层</b>：最终解释是否完整，下一步建议什么。</div>
+        </div>
+      </details>
+    </div>
+
+  </div><!-- /mgmt-modal -->
+</div><!-- /mgmt-overlay -->
 
 <script src="/app.js"></script>
 </body>

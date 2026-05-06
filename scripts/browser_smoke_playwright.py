@@ -4,7 +4,7 @@ browser_smoke_playwright.py — V6OP 真实浏览器级 Smoke 验收（总纲第
 
 与 browser_smoke.py（HTTP smoke）的区别：
   本脚本通过 Playwright 驱动真实 Chromium 浏览器，验证：
-  - 技能工具箱真实 DOM 渲染（22 条，含 5 个 live + 18 个 gray）
+  - 技能工具箱真实 DOM 渲染（22 条，含 5 个 live + 17 个 gray）
   - 灰卡 checkbox.disabled === true（DOM 层）
   - 参数填写 → 运行 → 刷新 → localStorage 回显
   - 实时日志区域渲染（#log-box 有内容）
@@ -86,7 +86,14 @@ def run_browser_smoke(base_url: str) -> dict:
             # gray checkboxes（disabled）
             gray_cbs = page.query_selector_all("#skill-list input[type=checkbox][disabled]")
             results["gray_skill_count"] = len(gray_cbs)
-            results["gray_skills_ok"] = len(gray_cbs) >= 18
+            results["gray_skills_ok"] = len(gray_cbs) >= 17
+
+            # P2: Bridge 控件真实 DOM 存在
+            results["bridge_controls_rendered"] = all([
+                page.query_selector("#bridge-enabled") is not None,
+                page.query_selector("#bridge-mode") is not None,
+                page.query_selector("#bridge-query") is not None,
+            ])
 
             # ── 3. 灰卡 checkbox.disabled 验证（DOM 层）─────────────────
             for cb in gray_cbs:
@@ -133,7 +140,7 @@ def run_browser_smoke(base_url: str) -> dict:
             results["log_box_rendered"] = log_box is not None
 
             # ── 6. 结果面板 ─────────────────────────────────────────────
-            result_area = page.query_selector("#result-area")
+            result_area = page.query_selector("#rtab-results")
             results["result_area_rendered"] = result_area is not None
 
         except PWTimeoutError as exc:
@@ -154,6 +161,7 @@ def run_browser_smoke(base_url: str) -> dict:
         results.get("live_skills_ok", False),
         results.get("gray_skills_ok", False),
         results.get("gray_checkboxes_disabled", False),
+        results.get("bridge_controls_rendered", False),
         results.get("localStorage_params_saved", False),
         results.get("log_box_rendered", False),
         results.get("result_area_rendered", False),

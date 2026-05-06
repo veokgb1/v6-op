@@ -3,12 +3,14 @@
 
 // ── API 路由 ──────────────────────────────────────────────────────────
 const API = {
-  health:      '/api/health',
-  run:         '/api/run',
-  result:      '/api/result',
-  stream:      '/api/stream',
-  abort:       '/api/abort',
-  scanSectors: '/api/scan_sectors',
+  health:       '/api/health',
+  run:          '/api/run',
+  result:       '/api/result',
+  stream:       '/api/stream',
+  abort:        '/api/abort',
+  scanSectors:  '/api/scan_sectors',
+  runs:         '/api/runs',
+  wencaiStatus: '/api/wencai/status',
 };
 
 // ── P1-P6 预设策略（来自 V5 PRESET_QUERIES）─────────────────────────
@@ -342,11 +344,16 @@ function saveParams() {
     const wencaiLimit  = document.getElementById('wencai-limit')?.value  || '300';
     const manualCodes  = document.getElementById('manual-codes')?.value  || '';
     const sectorQuery  = document.getElementById('sector-query')?.value  || '';
+    const bridgeEnabled = !!document.getElementById('bridge-enabled')?.checked;
+    const bridgeMode    = document.getElementById('bridge-mode')?.value || 'constrained';
+    const bridgeQuery   = document.getElementById('bridge-query')?.value || '';
+    const bridgeLimit   = document.getElementById('bridge-limit')?.value || '300';
     const skillOrder   = getSkillOrder();
 
     const saved = {
       sourceType, pathType, skills, skillParams, skillOrder,
       wencaiQuery, wencaiLimit, manualCodes, wencaiMode: _wencaiMode, sectorQuery,
+      bridgeEnabled, bridgeMode, bridgeQuery, bridgeLimit,
     };
     localStorage.setItem(PARAMS_STORE_ID, JSON.stringify(saved));
   } catch (_) {}
@@ -392,6 +399,15 @@ function restoreParams() {
     if (mc && saved.manualCodes) mc.value = saved.manualCodes;
     const sq = document.getElementById('sector-query');
     if (sq && saved.sectorQuery) sq.value = saved.sectorQuery;
+    const be = document.getElementById('bridge-enabled');
+    if (be) be.checked = !!saved.bridgeEnabled;
+    const bm = document.getElementById('bridge-mode');
+    if (bm && saved.bridgeMode) bm.value = saved.bridgeMode;
+    const bq = document.getElementById('bridge-query');
+    if (bq && saved.bridgeQuery) bq.value = saved.bridgeQuery;
+    const bl = document.getElementById('bridge-limit');
+    if (bl && saved.bridgeLimit) bl.value = saved.bridgeLimit;
+    updateBridgeConfig();
 
     if (saved.wencaiMode) setWencaiMode(saved.wencaiMode, true);
   } catch (_) {}
@@ -430,6 +446,15 @@ function resetParams() {
   if (wq) wq.value = '';
   const mc = document.getElementById('manual-codes');
   if (mc) mc.value = '';
+  const be = document.getElementById('bridge-enabled');
+  if (be) be.checked = false;
+  const bm = document.getElementById('bridge-mode');
+  if (bm) bm.value = 'constrained';
+  const bq = document.getElementById('bridge-query');
+  if (bq) bq.value = '';
+  const bl = document.getElementById('bridge-limit');
+  if (bl) bl.value = '300';
+  updateBridgeConfig();
 }
 
 // ── 初始化 ────────────────────────────────────────────────────────────
@@ -451,6 +476,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   bindFavButtons();
   bindScanButton();
   bindConfirmSectorsButton();
+  bindBridgeControls();
   restoreParams();
   bindResetParams();
   bindRunButton();
@@ -463,6 +489,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initRightTabs();
   initPromptLib();
   renderHistory();
+  initMgmtCenter();
   checkHealth();
 });
 
@@ -805,6 +832,37 @@ function bindSourceToggle() {
   update();
 }
 
+// ── Bridge 二次问财验证 ───────────────────────────────────────────────
+function bindBridgeControls() {
+  const enabled = $('bridge-enabled');
+  const mode    = $('bridge-mode');
+  const query   = $('bridge-query');
+  const limit   = $('bridge-limit');
+  if (enabled) enabled.addEventListener('change', () => {
+    updateBridgeConfig();
+    saveParams();
+  });
+  if (mode) mode.addEventListener('change', updateBridgeConfig);
+  [mode, query, limit].forEach(el => {
+    if (el) el.addEventListener('change', saveParams);
+  });
+  if (query) query.addEventListener('input', saveParams);
+  updateBridgeConfig();
+}
+
+function updateBridgeConfig() {
+  const enabled = !!$('bridge-enabled')?.checked;
+  const config  = $('bridge-config');
+  const hint    = $('bridge-hint');
+  const mode    = $('bridge-mode')?.value || 'constrained';
+  if (config) config.classList.toggle('hidden', !enabled);
+  if (hint) {
+    hint.textContent = mode === 'annotate'
+      ? '标注模式在最终命中后再问财，只增加 in_wencai 标签，不改变命中列表。'
+      : '约束模式在取数前执行问财，并与当前股票池取交集，可能减少后续分析范围。';
+  }
+}
+
 // ── 全 A 档位警告联动 ─────────────────────────────────────────────────
 function bindAllALimitWatch() {
   const inp = $('all-a-limit');
@@ -1127,6 +1185,16 @@ function buildStrategy() {
   if (skills.length === 0) throw new Error('请至少选择一项技能');
 
   const pathType = document.querySelector('input[name="path-type"]:checked').value;
+  let bridge = null;
+  if ($('bridge-enabled')?.checked) {
+    const bridgeQuery = $('bridge-query')?.value.trim() || '';
+    if (!bridgeQuery) throw new Error('Bridge 已启用：请输入二次问财验证语句');
+    bridge = {
+      mode: $('bridge-mode')?.value || 'constrained',
+      wencai_query: bridgeQuery,
+      wencai_limit: parseInt($('bridge-limit')?.value || '300', 10) || 300,
+    };
+  }
 
   const skillParams = {};
   for (const skillId of skills) {
@@ -1146,12 +1214,14 @@ function buildStrategy() {
     if (Object.keys(sp).length > 0) skillParams[skillId] = sp;
   }
 
-  return {
+  const strategy = {
     source,
     skills,
     path_type: pathType,
     params: { skills: skillParams },
   };
+  if (bridge) strategy.bridge = bridge;
+  return strategy;
 }
 
 // ── 恢复默认参数按钮 ──────────────────────────────────────────────────
@@ -1376,6 +1446,9 @@ function renderResult(r) {
   renderHits(r);
   renderFailed(r);
   renderReportLinks(r);
+  renderGlobalExplanation(r);
+  renderDataProvenance(r);
+  renderBridgeResult(r);
 }
 
 function renderPrefetch(r) {
@@ -1702,6 +1775,14 @@ function clearResult() {
   $('warnings-box').innerHTML  = '';
   $('producer-box').innerHTML  = '';
   $('report-links').innerHTML  = '';
+  const explSection = $('global-explanation-section');
+  if (explSection) explSection.classList.add('hidden');
+  const provSection = $('data-provenance-section');
+  if (provSection) provSection.classList.add('hidden');
+  const bridgeSection = $('bridge-result-section');
+  if (bridgeSection) bridgeSection.classList.add('hidden');
+  const badge = $('why-zero-badge');
+  if (badge) badge.classList.add('hidden');
   _lastResult = null;
 }
 
@@ -2027,3 +2108,387 @@ window.historyLoadPrompt = function(idx) {
     }
   } catch (_) {}
 };
+
+// ══════════════════════════════════════════════════════════════════
+// G6 管理中心
+// ══════════════════════════════════════════════════════════════════
+
+function initMgmtCenter() {
+  const overlay  = $('mgmt-overlay');
+  const btnOpen  = $('btn-mgmt-open');
+  const btnClose = $('btn-mgmt-close');
+
+  if (btnOpen) btnOpen.addEventListener('click', () => {
+    overlay.classList.remove('hidden');
+    loadMgmtHistory();
+  });
+  if (btnClose) btnClose.addEventListener('click', () => overlay.classList.add('hidden'));
+  if (overlay) overlay.addEventListener('click', ev => {
+    if (ev.target === overlay) overlay.classList.add('hidden');
+  });
+  document.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape' && overlay && !overlay.classList.contains('hidden'))
+      overlay.classList.add('hidden');
+  });
+
+  // mgmt tab switching
+  document.querySelectorAll('.mgmt-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.mgmt-tab').forEach(t => t.classList.remove('mgmt-tab-active'));
+      document.querySelectorAll('.mgmt-panel').forEach(p => p.classList.add('mgmt-panel-hidden'));
+      tab.classList.add('mgmt-tab-active');
+      const panel = $('mtab-' + tab.dataset.mtab);
+      if (panel) panel.classList.remove('mgmt-panel-hidden');
+    });
+  });
+
+  // reload history
+  const btnReload = $('btn-reload-history');
+  if (btnReload) btnReload.addEventListener('click', loadMgmtHistory);
+
+  // three-layer cache clear
+  ['source', 'kline', 'skill'].forEach(layer => {
+    const btn = $('btn-clear-' + layer);
+    if (btn) btn.addEventListener('click', () => clearCacheLayer(layer));
+  });
+
+  // wencai auth check
+  const btnW = $('btn-check-wencai');
+  if (btnW) btnW.addEventListener('click', checkWencaiAuth);
+
+  // settings save
+  const btnSettings = $('btn-save-settings');
+  if (btnSettings) btnSettings.addEventListener('click', saveMgmtSettings);
+}
+
+// ── 管理中心：从服务端加载历史 ───────────────────────────────────────
+async function loadMgmtHistory() {
+  const listEl = $('mgmt-history-list');
+  if (!listEl) return;
+  listEl.innerHTML = '<div class="text-muted" style="font-size:12px">加载中…</div>';
+  try {
+    const res  = await fetch(API.runs);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const runs = data.runs || [];
+    if (!runs.length) {
+      listEl.innerHTML = '<div class="text-muted" style="font-size:12px">暂无历史运行记录</div>';
+      return;
+    }
+    listEl.innerHTML = runs.map(r => {
+      const runId   = r.run_id || '';
+      const shortId = runId.slice(-12);
+      const timeStr = (r.generated_at || r.time || '').replace('T', ' ').slice(0, 16);
+      const hits    = r.hit_count ?? r.final_hit_count ?? '?';
+      const src     = r.source_type || '?';
+      const hitColor = parseInt(hits, 10) > 0 ? 'var(--green)' : 'var(--muted)';
+      const queryTip = (r.query || src).slice(0, 44);
+      return `<div class="history-entry">
+        <div class="history-entry-header">
+          <span class="history-run-id" title="${esc(runId)}">${esc(shortId)}</span>
+          <span class="history-hit-badge" style="color:${hitColor}">${esc(String(hits))} 命中</span>
+        </div>
+        <div class="history-entry-meta" title="${esc(r.query || '')}">
+          ${esc(timeStr)} · ${esc(src)} · ${esc(queryTip)}
+        </div>
+        <div class="history-entry-actions">
+          <button class="btn btn-sm" type="button"
+            onclick="restoreRunParams(${JSON.stringify(runId)})">↩ 恢复参数</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    listEl.innerHTML = `<div class="alert alert-warn"><span class="alert-icon">⚠️</span>`
+      + `<span>加载失败: ${esc(e.message)}</span></div>`;
+  }
+}
+
+window.restoreRunParams = async function(runId) {
+  try {
+    const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/params`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const restored = data.params || data.strategy_snapshot || data.strategy || {};
+    _applyRestoredParams(restored);
+    const overlay = $('mgmt-overlay');
+    if (overlay) overlay.classList.add('hidden');
+    showAlert('center-alerts', 'ok', `已恢复参数（run_id: ...${runId.slice(-8)}），未自动启动运行`);
+  } catch (e) {
+    showAlert('center-alerts', 'warn', `恢复参数失败: ${e.message}`);
+  }
+};
+
+function _applyRestoredParams(params) {
+  const src = params.source || {};
+  if (src.type) {
+    const r = document.querySelector(`input[name="source-type"][value="${src.type}"]`);
+    if (r) { r.checked = true; r.dispatchEvent(new Event('change')); }
+  }
+  if (params.path_type) {
+    const r = document.querySelector(`input[name="path-type"][value="${params.path_type}"]`);
+    if (r) r.checked = true;
+  }
+  const skillsArr = params.skills || params.selected_skills || [];
+  document.querySelectorAll('#skill-list input[type=checkbox][data-live="true"]').forEach(cb => {
+    const checked = skillsArr.includes(cb.value);
+    if (cb.checked !== checked) { cb.checked = checked; cb.dispatchEvent(new Event('change')); }
+  });
+  const sp = (params.params || {}).skills || {};
+  for (const [id, vals] of Object.entries(sp)) {
+    for (const [name, val] of Object.entries(vals)) {
+      const el = document.getElementById(`p-${id}-${name}`);
+      if (el) el.value = String(val);
+    }
+  }
+  if (src.query)  { const el = $('wencai-query'); if (el) el.value = src.query; }
+  if (src.limit)  { const el = $('wencai-limit'); if (el) el.value = String(src.limit);
+                    const al = $('all-a-limit');   if (al) al.value = String(src.limit); }
+  if (Array.isArray(src.codes)) {
+    const el = $('manual-codes');
+    if (el) el.value = src.codes.join(', ');
+  }
+  const bridge = params.bridge || {};
+  const be = $('bridge-enabled');
+  if (be) be.checked = !!(bridge.mode && bridge.wencai_query);
+  if (bridge.mode) {
+    const bm = $('bridge-mode');
+    if (bm) bm.value = bridge.mode;
+  }
+  if (bridge.wencai_query) {
+    const bq = $('bridge-query');
+    if (bq) bq.value = bridge.wencai_query;
+  }
+  if (bridge.wencai_limit) {
+    const bl = $('bridge-limit');
+    if (bl) bl.value = String(bridge.wencai_limit);
+  }
+  updateBridgeConfig();
+  saveParams();
+}
+
+// ── 管理中心：三层缓存清理 ────────────────────────────────────────────
+async function clearCacheLayer(layer) {
+  const resultEl = $('clear-' + layer + '-result');
+  const btn      = $('btn-clear-' + layer);
+  if (resultEl) { resultEl.style.color = 'var(--muted)'; resultEl.textContent = '清理中…'; }
+  if (btn) btn.disabled = true;
+  try {
+    const res  = await fetch(`/api/cache/clear/${layer}`, { method: 'POST' });
+    const data = await res.json();
+    if (resultEl) {
+      resultEl.style.color = res.ok ? 'var(--green)' : 'var(--red)';
+      resultEl.textContent = res.ok
+        ? (data.message || '已清理') + (data.deleted != null ? ` (${data.deleted} 个文件)` : '')
+        : (data.error || '清理失败');
+    }
+  } catch (e) {
+    if (resultEl) { resultEl.style.color = 'var(--red)'; resultEl.textContent = e.message; }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ── 管理中心：问财授权检查 ────────────────────────────────────────────
+async function checkWencaiAuth() {
+  const el  = $('wencai-auth-status');
+  const btn = $('btn-check-wencai');
+  if (el) el.innerHTML = '<span class="text-muted">检查中…</span>';
+  if (btn) btn.disabled = true;
+  try {
+    const res  = await fetch(API.wencaiStatus);
+    const data = await res.json();
+    if (!el) return;
+    const rows = [
+      ['pywencai 已安装',       data.pywencai_installed ? '✅ 是' : '❌ 否',
+        data.pywencai_installed ? 'text-green' : 'text-red'],
+      ['IWENCAI_API_KEY 已配置', data.env_key_present ? '✅ 是' : '⚠ 未配置',
+        data.env_key_present ? 'text-green' : 'text-yellow'],
+      ['当前状态', data.status || '—',
+        data.status === 'ready' ? 'text-green' : 'text-yellow'],
+    ];
+    const rowsHtml = rows.map(([l, v, c]) =>
+      `<div class="cov-item"><span class="cov-label">${esc(l)}</span>`
+      + `<span class="cov-value ${c}">${esc(v)}</span></div>`
+    ).join('');
+    const note = data.auth_mechanism || '';
+    el.innerHTML = `<div class="coverage-grid">${rowsHtml}</div>`
+      + (note ? `<div class="form-hint mt4">${esc(note)}</div>` : '');
+  } catch (e) {
+    if (el) el.innerHTML = `<span class="text-red">检查失败: ${esc(e.message)}</span>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ── 管理中心：设置 ────────────────────────────────────────────────────
+function saveMgmtSettings() {
+  const pathEl = $('setting-default-path');
+  const tip    = $('settings-save-tip');
+  if (pathEl) {
+    const r = document.querySelector(`input[name="path-type"][value="${pathEl.value}"]`);
+    if (r) r.checked = true;
+  }
+  if (tip) {
+    tip.style.display = '';
+    setTimeout(() => { tip.style.display = 'none'; }, 1500);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// G2 全局解释层渲染
+// ══════════════════════════════════════════════════════════════════
+
+function renderGlobalExplanation(r) {
+  const section = $('global-explanation-section');
+  const body    = $('global-explanation-body');
+  const badge   = $('why-zero-badge');
+  const expl    = r.global_explanation;
+
+  if (!expl || !section || !body) return;
+  section.classList.remove('hidden');
+
+  const hitCount = expl.final_hit_count ?? (r.final_hit_codes || []).length;
+  if (badge) badge.classList.toggle('hidden', hitCount > 0);
+
+  function _explRow(label, value, cls) {
+    return `<div class="cov-item"><span class="cov-label">${esc(label)}</span>`
+      + `<span class="cov-value ${cls || ''}">${esc(String(value ?? '—'))}</span></div>`;
+  }
+  function _explLayer(name, ok, rowsHtml, suggestion) {
+    const ind = ok ? '✅' : '⚠';
+    const indCls = ok ? 'text-green' : 'text-yellow';
+    return `<div class="expl-layer">`
+      + `<div class="expl-layer-name"><span class="${indCls}">${ind}</span> ${esc(name)}</div>`
+      + `<div class="expl-layer-text"><div class="coverage-grid">${rowsHtml}</div>`
+      + (suggestion ? `<div class="form-hint mt4 text-yellow">${esc(suggestion)}</div>` : '')
+      + `</div></div>`;
+  }
+
+  const src = expl.source_layer || {};
+  const dat = expl.data_layer   || {};
+  const skl = expl.skill_layer  || {};
+  const pth = expl.path_layer   || {};
+  const rpt = expl.report_layer || {};
+
+  const sourceHtml = _explLayer('来源层', src.ok, [
+    _explRow('来源类型', src.source_type, ''),
+    _explRow('股票数量', src.actual_count, src.actual_count > 0 ? 'text-green' : 'text-red'),
+    _explRow('数量说明', src.count_note || '—', ''),
+  ].join(''), src.suggestion);
+
+  const dataHtml = _explLayer('数据层', dat.ok, [
+    _explRow('就绪状态', dat.readiness, dat.readiness === 'ready' ? 'text-green' : 'text-yellow'),
+    _explRow('命中缓存', dat.cached, ''),
+    _explRow('失败',     dat.failed, dat.failed > 0 ? 'text-red' : ''),
+    _explRow('降级',     dat.stale,  dat.stale  > 0 ? 'text-yellow' : ''),
+  ].join(''), dat.suggestion);
+
+  const skillRowsHtml = (skl.skills || []).map(s =>
+    `<div class="cov-item"><span class="cov-label">${esc(s.skill_id || '?')}</span>`
+    + `<span class="cov-value ${s.hit_count > 0 ? 'text-green' : 'text-red'}">`
+    + `输入 ${s.input_count ?? '?'} | 命中 ${s.hit_count ?? 0} | 未中 ${s.miss_count ?? 0}`
+    + `</span></div>`
+  ).join('');
+  const skillHtml = _explLayer('技能层', skl.ok, skillRowsHtml, skl.suggestion);
+
+  const pathHtml = _explLayer('路径层', pth.ok, [
+    _explRow('路径类型',   pth.path_type,        ''),
+    _explRow('步骤数',     pth.step_count,        ''),
+    _explRow('清零步骤',   pth.first_zero_step || '—', pth.first_zero_step ? 'text-red' : ''),
+  ].join(''), pth.suggestion);
+
+  const rptHtml = _explLayer('报告层', rpt.ok, [
+    _explRow('最终命中', rpt.final_hit_count, rpt.final_hit_count > 0 ? 'text-green' : 'text-red'),
+  ].join(''), rpt.suggestion);
+
+  const whyZeroHtml = expl.why_zero
+    ? `<div class="expl-layer" style="border-left-color:var(--yellow)">`
+      + `<div class="expl-layer-name" style="color:var(--yellow)">⚠ 零命中归因</div>`
+      + `<div class="expl-layer-text" style="color:var(--yellow)">${esc(expl.why_zero)}</div>`
+      + `</div>`
+    : '';
+
+  body.innerHTML = sourceHtml + dataHtml + skillHtml + pathHtml + rptHtml + whyZeroHtml
+    || '<span class="text-muted">无解释数据</span>';
+}
+
+// ══════════════════════════════════════════════════════════════════
+// G5 数据血缘渲染
+// ══════════════════════════════════════════════════════════════════
+
+function renderDataProvenance(r) {
+  const section = $('data-provenance-section');
+  const body    = $('data-provenance-body');
+  const prov    = r.data_provenance;
+
+  if (!prov || !section || !body) return;
+  section.classList.remove('hidden');
+
+  const modeLabel = prov.fetch_mode === 'prefetch' ? '🌐 新拉行情' : '💾 仅读缓存';
+  const stats = [
+    [modeLabel,          null,                    ''],
+    ['总股票数',         prov.total   ?? '—',     ''],
+    ['新拉行情',         prov.fetched_new ?? 0,   'text-green'],
+    ['命中缓存',         prov.from_cache  ?? 0,   'text-green'],
+    ['降级旧数据',       prov.degraded    ?? 0,   prov.degraded > 0 ? 'text-yellow' : ''],
+    ['失败',             prov.failed      ?? 0,   prov.failed   > 0 ? 'text-red' : ''],
+    ['最旧数据日',       prov.oldest_data_date || '—', ''],
+  ];
+
+  const statsHtml = `<div class="prov-stat-row">`
+    + stats.map(([label, val, cls]) => {
+        const display = val === null ? label : `<b class="${cls}">${esc(String(val))}</b> ${esc(label)}`;
+        return `<span class="prov-stat">${display}</span>`;
+      }).join('')
+    + `</div>`;
+
+  const perStock = prov.per_stock || {};
+  const entries = Object.entries(perStock);
+  const rows = entries.slice(0, 25).map(([code, meta]) => {
+    const source = meta.source || '—';
+    const fresh = meta.is_new_fetch ? '新拉' : '本地';
+    const degrade = meta.is_degraded ? '降级' : '正常';
+    const latest = meta.latest_date || '—';
+    const trust = meta.trust_level || '—';
+    return `<div class="prov-stock-row">`
+      + `<span class="prov-stock-code">${esc(code)}</span>`
+      + `<span>${esc(source)}</span>`
+      + `<span class="${meta.is_new_fetch ? 'text-green' : ''}">${fresh}</span>`
+      + `<span class="${meta.is_degraded ? 'text-yellow' : ''}">${degrade}</span>`
+      + `<span>${esc(latest)} / ${esc(trust)}</span>`
+      + `</div>`;
+  }).join('');
+  const stockHtml = entries.length
+    ? `<div class="prov-stock-table">`
+      + `<div class="prov-stock-row"><span>股票</span><span>来源</span><span>取数</span><span>状态</span><span>日期 / 可信度</span></div>`
+      + rows
+      + `</div>`
+      + (entries.length > 25 ? `<div class="form-hint mt4">仅展示前 25 只，完整逐股血缘见 run_report.json。</div>` : '')
+    : `<div class="form-hint mt4">本轮未产生逐股血缘。</div>`;
+
+  body.innerHTML = statsHtml + stockHtml;
+}
+
+function renderBridgeResult(r) {
+  const section = $('bridge-result-section');
+  const body    = $('bridge-result-body');
+  const br      = r.bridge_result || {};
+  if (!section || !body || !br.mode) return;
+  section.classList.remove('hidden');
+
+  const rows = [
+    ['模式', br.mode || '—', ''],
+    ['是否执行', br.applied ? '是' : '否', br.applied ? 'text-green' : 'text-yellow'],
+    ['问财返回', br.wencai_returned ?? '—', ''],
+    ['执行前股票池', br.pool_before ?? '—', ''],
+    ['执行后股票池', br.pool_after ?? '—', ''],
+    ['标注命中', br.annotated_count ?? '—', ''],
+  ].map(([label, val, cls]) =>
+    `<div class="cov-item"><span class="cov-label">${esc(label)}</span>`
+    + `<span class="cov-value ${cls}">${esc(String(val))}</span></div>`
+  ).join('');
+
+  body.innerHTML = `<div class="coverage-grid">${rows}</div>`
+    + (br.wencai_query ? `<div class="form-hint mt4">问财语句：${esc(br.wencai_query)}</div>` : '')
+    + (br.description ? `<div class="form-hint mt4">${esc(br.description)}</div>` : '');
+}

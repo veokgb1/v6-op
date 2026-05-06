@@ -102,18 +102,46 @@ def generate(execution_result: dict[str, Any], output_dir: Path) -> dict[str, Pa
     source_type = scope.get("source_type")
     source_limit = source_cfg.get("limit")
     source_count = scope.get("scope_count", 0)
+    # G3: 来源层语义 — 问财 PRO 5000 与全A 5000 显示不同语义
+    _limit_semantic = {
+        "wencai": f"最多接收问财返回结果（limit={source_limit}），不保证一定返回这么多",
+        "all_a":  f"本地A股名单最多截取 {source_limit} 只",
+        "manual": "手动输入，无上限限制",
+    }.get(source_type or "", f"limit={source_limit}")
     source_notes = {
         "manual": "手动输入股票代码；不是外部接口返回。",
-        "all_a": "读取本地 data/ashare_codes.txt，再按扫描档位上限截取。",
+        "all_a":  "读取本地 data/ashare_codes.txt，再按扫描档位上限截取。",
         "wencai": "调用问财接口取得股票池；档位是最多取多少条，不保证一定返回这么多。",
     }
+    # G3 + G4-auth: source_info 诊断节
+    source_info: dict[str, Any] = {
+        "source_type": source_type,
+        "status": scope.get("status"),
+        "actual_count": source_count,
+        "limit": source_limit,
+        "limit_semantic": _limit_semantic,
+        "note": source_notes.get(source_type or "", "未知股票来源"),
+    }
+    if source_type == "wencai":
+        source_info.update({
+            "query_text":   scope.get("query_text", ""),
+            "api_called":   scope.get("api_called", False),
+            "elapsed_s":    scope.get("elapsed_s", 0.0),
+            "count_note":   scope.get("count_note", ""),
+            "auth_note":    scope.get("auth_note", (
+                "pywencai 使用 session 认证（非 api_key 参数），"
+                "IWENCAI_API_KEY 存在但未传入 pywencai.get()，"
+                "实际认证依赖 pywencai 本地 session cookie。"
+            )),
+        })
+
     data_sources = {
         "stock_source": {
             "type": source_type,
             "actual_count": source_count,
             "limit": source_limit,
             "status": scope.get("status"),
-            "note": source_notes.get(source_type, "未知股票来源"),
+            "note": source_notes.get(source_type or "", "未知股票来源"),
         },
         "kline": {
             "database": "var/cache/kline_daily",
@@ -130,6 +158,11 @@ def generate(execution_result: dict[str, Any], output_dir: Path) -> dict[str, Pa
         },
     }
 
+    actual_days_used: int = int(
+        execution_result.get("actual_days_used")
+        or (execution_result.get("strategy") or {}).get("params", {}).get("days", 365)
+    )
+
     run_report: dict[str, Any] = {
         "run_id": execution_result.get("run_id", ""),
         "generated_at": report_generated_at,
@@ -138,6 +171,7 @@ def generate(execution_result: dict[str, Any], output_dir: Path) -> dict[str, Pa
         "elapsed_seconds": execution_result.get("elapsed_seconds"),
         "status": status,
         "error": error,
+        "actual_days_used": actual_days_used,
         "strategy": {
             "source": {
                 "type": scope.get("source_type"),
@@ -150,11 +184,15 @@ def generate(execution_result: dict[str, Any], output_dir: Path) -> dict[str, Pa
             "path_type": execution_result.get("path_type", ""),
             "params": execution_result.get("params", {}),
         },
+        "strategy_snapshot": execution_result.get("strategy", {}),
         "prefetch_report": fetch.get("prefetch_report", {}),
         "producer_summary": producer_summary,
         "expression": {
             "steps": expression.get("steps", []),
             "primary_expression_id": expression.get("primary_expression_id"),
+            "executable": expression.get("executable", False),
+            "path_description": expression.get("path_description", ""),
+            "sequential_chain": expression.get("sequential_chain", []),
             "metadata": expr_metadata,
         },
         "final_hit_codes": final_hits,
@@ -164,6 +202,10 @@ def generate(execution_result: dict[str, Any], output_dir: Path) -> dict[str, Pa
         "stale_codes": fetch.get("stale_codes", []),
         "data_coverage": data_coverage,
         "data_sources": data_sources,
+        "source_info": source_info,
+        "global_explanation": execution_result.get("global_explanation", {}),
+        "data_provenance": execution_result.get("data_provenance", {}),
+        "bridge_result": execution_result.get("bridge_result", {}),
         "data_time_max": fetch_data_time_max,
         "warnings": warnings,
         "prefetch_triggered": execution_result.get("prefetch_triggered", False),

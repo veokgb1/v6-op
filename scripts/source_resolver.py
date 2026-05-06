@@ -73,6 +73,7 @@ def resolve(
     error = None
     codes: list[str] = []
     status = "ok"
+    _wencai_diag: dict = {}
 
     if source_type == "manual":
         if not manual_codes:
@@ -112,6 +113,7 @@ def resolve(
             codes = codes[:ashare_limit]
 
     elif source_type == "wencai":
+        _wencai_diag: dict = {}
         try:
             if str(_SCRIPTS_DIR / "sources") not in sys.path:
                 sys.path.insert(0, str(_SCRIPTS_DIR / "sources"))
@@ -132,9 +134,27 @@ def resolve(
                 _wencai_source._log_sink = old_sink
             codes = result.get("scope_codes", [])
             status = result.get("status", "error")
+            # G3: 保留诊断字段供报告使用
+            _wencai_diag = {
+                "query_text":   result.get("query_text", wencai_query or ""),
+                "actual_count": result.get("actual_count", len(codes)),
+                "api_called":   result.get("api_called", False),
+                "elapsed_s":    result.get("elapsed_s", 0.0),
+                "count_note":   result.get("count_note", ""),
+                "limit":        result.get("limit", wencai_limit),
+                # G4-auth: pywencai 使用 session 认证，不接受 api_key 参数
+                # IWENCAI_API_KEY 在 .env 中存在时会被加载，但当前代码路径
+                # 不将其传入 pywencai.get()，pywencai 依赖浏览器 session cookie 认证。
+                "auth_note": (
+                    "pywencai 使用 session 认证（非 api_key 参数），"
+                    "IWENCAI_API_KEY 存在但未传入 pywencai.get()，"
+                    "实际认证依赖 pywencai 本地缓存的 session。"
+                    if status not in ("key_missing", "blocked")
+                    else "api_key 未配置或 pywencai 未安装，跳过接口调用。"
+                ),
+            }
             if status not in ("ok",):
                 error = result.get("note") or result.get("error") or f"wencai 返回 status={status}"
-                # 保留所有已知具体失败状态，未知状态归为 error
                 _known_fail = {"blocked", "key_missing", "auth_failed",
                                "empty_result", "network_error", "api_error", "error"}
                 if status not in _known_fail:
@@ -144,6 +164,7 @@ def resolve(
             status = "error"
             error = str(exc)
             codes = []
+            _wencai_diag = {}
 
     else:
         return {
@@ -160,7 +181,7 @@ def resolve(
         }
 
     scope_id = _make_scope_id(source_type, codes)
-    return {
+    scope_result: dict = {
         "scope_id": scope_id,
         "source_type": source_type,
         "scope_codes": codes,
@@ -169,6 +190,10 @@ def resolve(
         "error": error,
         "generated_at": ts,
     }
+    # 透传问财诊断字段
+    if source_type == "wencai" and _wencai_diag:
+        scope_result.update(_wencai_diag)
+    return scope_result
 
 
 if __name__ == "__main__":

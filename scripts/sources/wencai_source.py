@@ -216,19 +216,37 @@ def _make_scope_json(
     elapsed: float,
 ) -> dict:
     qhash = hashlib.sha1(query.encode()).hexdigest()[:8]
+    count = len(codes)
+    # api_called: 是否真正尝试调用了 pywencai 接口
+    api_called = status not in ("key_missing", "blocked")
+    # count_note: 区分三种返回量级
+    near_limit = count >= max(1, int(limit * 0.95))
+    if count == 0:
+        count_note = "问财返回 0 只股票，条件可能过严、查询不匹配或授权未生效"
+    elif near_limit:
+        count_note = f"接近上限（{count}/{limit}），实际符合股票可能更多，可尝试提高 limit"
+    elif count < 50:
+        count_note = f"问财仅返回少量股票（{count} 只），可考虑放宽查询条件"
+    else:
+        count_note = f"问财返回 {count} 只股票"
+
     return {
         "scope_id":      f"wencai_{qhash}",
         "source":        "wencai",
         "query_hash":    qhash,
-        "status":        status,         # ok / blocked / error / key_missing
+        "query_text":    query,
+        "actual_count":  count,
+        "api_called":    api_called,
+        "count_note":    count_note,
+        "status":        status,
         "scope_codes":   codes,
-        "scope_count":   len(codes),
+        "scope_count":   count,
         "limit":         limit,
         "data_mode":     "live_api" if status == "ok" else status,
         "generated_at":  iso_cst(),
         "elapsed_s":     round(elapsed, 2),
         "note":          {
-            "ok":           "",
+            "ok":           count_note,
             "key_missing":  "IWENCAI_API_KEY 未配置，请检查 .env 文件",
             "blocked":      "pywencai 库未安装，无法调用问财 API",
             "auth_failed":  "问财 API 认证失败（401 Unauthorized），请检查 API Key 是否有效",

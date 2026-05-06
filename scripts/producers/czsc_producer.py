@@ -181,7 +181,7 @@ def _df_to_bars(df: "pd.DataFrame", symbol: str) -> list:
     return bars
 
 
-def _analyze_one(code: str, signal_bars: int, buy_type_filter: str) -> dict:
+def _analyze_one(code: str, signal_bars: int, buy_type_filter: str, days: int = 365) -> dict:
     """对单只股票执行缠论分析，返回结果字典。仅读缓存，不触网。"""
     from ohlcv_provider import fetch_ohlcv
 
@@ -196,7 +196,7 @@ def _analyze_one(code: str, signal_bars: int, buy_type_filter: str) -> dict:
         "error": None,
     }
 
-    df = fetch_ohlcv(code, days=365, verbose=False)
+    df = fetch_ohlcv(code, days=days, verbose=False)
     if df is None or df.empty:
         result["error"] = "缓存未命中（READ_CACHE_ONLY 模式，无本地缓存）"
         return result
@@ -321,7 +321,7 @@ def run(
         results: list[dict] = []
         for code in codes:
             try:
-                res = _analyze_one(code, signal_bars, buy_type)
+                res = _analyze_one(code, signal_bars, buy_type, days=days)
             except Exception as exc:
                 res = {"code": code, "passed": False, "error": str(exc)}
             results.append(res)

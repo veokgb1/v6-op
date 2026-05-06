@@ -321,6 +321,47 @@ class TestV6OP006ApiResult:
         assert sent
         assert sent[0][0] == 404
 
+    def test_api_runs_params_returns_frontend_restore_contract(self, tmp_path, monkeypatch):
+        """/api/runs/:id/params 必须返回前端可直接恢复的 params 契约。"""
+        import v6op_server
+
+        run_id = "run-contract-001"
+        run_dir = tmp_path / "output" / "runs" / run_id
+        run_dir.mkdir(parents=True)
+        strategy_snapshot = {
+            "source": {"type": "manual", "codes": ["000001.SZ", "000002.SZ"]},
+            "skills": ["kline", "landmine"],
+            "path_type": "parallel_and",
+            "params": {"skills": {"kline": {"signal_bars": 3}}},
+        }
+        report = {
+            "run_id": run_id,
+            "actual_days_used": 365,
+            "strategy": {
+                "source": {"type": "manual", "scope_count": 2, "status": "ok"},
+                "selected_skills": ["kline", "landmine"],
+                "path_type": "parallel_and",
+                "params": {"skills": {"kline": {"signal_bars": 3}}},
+            },
+            "strategy_snapshot": strategy_snapshot,
+        }
+        (run_dir / "run_report.json").write_text(
+            json.dumps(report, ensure_ascii=False), encoding="utf-8"
+        )
+
+        handler, sent = self._make_handler(monkeypatch, tmp_path, v6op_server)
+        handler.path = f"/api/runs/{run_id}/params"
+        handler.do_GET()
+
+        assert sent, "未调用 _send_json"
+        code, data = sent[0]
+        assert code == 200
+        assert data["params"] == strategy_snapshot
+        assert data["params"]["source"]["codes"] == ["000001.SZ", "000002.SZ"]
+        assert data["params"]["skills"] == ["kline", "landmine"]
+        assert data["params"]["path_type"] == "parallel_and"
+        assert data["params"]["params"]["skills"]["kline"]["signal_bars"] == 3
+
 
 # ══════════════════════════════════════════════════════════════════════
 # TestV6OP007AllAProtection — V6OP-007 全 A 扫描 API 层保护

@@ -237,6 +237,93 @@ class V6OPHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self._send_json(500, {"error": f"skill_catalog 加载失败: {exc}"})
 
+        elif path == "/api/runs":
+            # G7: 历史运行记录列表（从 output/runs/ 读取）
+            runs_dir = _PROJECT_ROOT / "output" / "runs"
+            runs: list[dict] = []
+            if runs_dir.exists():
+                for run_dir in sorted(runs_dir.iterdir(), reverse=True):
+                    if not run_dir.is_dir():
+                        continue
+                    rr = run_dir / "run_report.json"
+                    if rr.exists():
+                        try:
+                            d = json.loads(rr.read_text(encoding="utf-8"))
+                            runs.append({
+                                "run_id": d.get("run_id", run_dir.name),
+                                "generated_at": d.get("generated_at", ""),
+                                "status": d.get("status", ""),
+                                "final_hit_count": d.get("final_hit_count", 0),
+                                "actual_days_used": d.get("actual_days_used", 365),
+                                "path_type": d.get("strategy", {}).get("path_type", ""),
+                                "source_type": d.get("strategy", {}).get("source", {}).get("type", ""),
+                            })
+                        except Exception:
+                            runs.append({"run_id": run_dir.name, "status": "unreadable"})
+            self._send_json(200, {"runs": runs[:20], "total": len(runs)})
+
+        elif path.startswith("/api/runs/") and path.endswith("/params"):
+            # G7: 恢复历史运行参数（只返回，不启动）
+            parts = path.split("/")
+            if len(parts) >= 4:
+                run_id_req = parts[3]
+                rr_path = _PROJECT_ROOT / "output" / "runs" / run_id_req / "run_report.json"
+                if rr_path.exists():
+                    try:
+                        d = json.loads(rr_path.read_text(encoding="utf-8"))
+                        summary = d.get("strategy", {}) or {}
+                        params = d.get("strategy_snapshot") or {
+                            "source": summary.get("source", {}),
+                            "skills": summary.get("selected_skills", []),
+                            "path_type": summary.get("path_type", ""),
+                            "params": summary.get("params", {}),
+                        }
+                        self._send_json(200, {
+                            "run_id": run_id_req,
+                            "params": params,
+                            "strategy": summary,
+                            "strategy_snapshot": d.get("strategy_snapshot", {}),
+                            "actual_days_used": d.get("actual_days_used", 365),
+                            "note": "参数已恢复，不会自动启动运行",
+                        })
+                    except Exception as exc:
+                        self._send_json(500, {"error": str(exc)})
+                else:
+                    self._send_json(404, {"error": f"历史记录不存在: {run_id_req}"})
+            else:
+                self._send_json(400, {"error": "无效路径"})
+
+        elif path == "/api/wencai/status":
+            # G4-auth: 问财授权状态检查
+            env_path = _PROJECT_ROOT / ".env"
+            has_key = False
+            if env_path.exists():
+                for line in env_path.read_text(encoding="utf-8").splitlines():
+                    if line.strip().startswith("IWENCAI_API_KEY="):
+                        val = line.strip().split("=", 1)[-1].strip().strip('"').strip("'")
+                        has_key = bool(val)
+                        break
+            try:
+                import pywencai  # type: ignore
+                pywencai_installed = True
+            except ImportError:
+                pywencai_installed = False
+            self._send_json(200, {
+                "env_key_present": has_key,
+                "pywencai_installed": pywencai_installed,
+                "auth_mechanism": (
+                    "pywencai 使用 session 认证（非 api_key 参数）。"
+                    "IWENCAI_API_KEY 已配置但不传入 pywencai.get()，"
+                    "实际认证依赖 pywencai 本地缓存的 session cookie。"
+                    if has_key else
+                    "IWENCAI_API_KEY 未配置，无法调用问财 API。"
+                ),
+                "status": (
+                    "ready" if (has_key and pywencai_installed) else
+                    "key_missing" if not has_key else "pywencai_not_installed"
+                ),
+            })
+
         else:
             self._serve_static(path)
 
@@ -407,6 +494,61 @@ class V6OPHandler(BaseHTTPRequestHandler):
                     "query": sector_query,
                     "error": f"板块扫描模块异常: {exc}",
                 })
+
+        elif path == "/api/cache/clear/source":
+            # G7: 清来源快照缓存（output/current/wencai_scope.json 等 scope 文件）
+            import glob as _glob
+            cleared: list[str] = []
+            for pattern in [
+                str(_PROJECT_ROOT / "output" / "current" / "*_scope.json"),
+                str(_PROJECT_ROOT / "output" / "current" / "prefetch_report.json"),
+            ]:
+                for fp in _glob.glob(pattern):
+                    try:
+                        Path(fp).unlink()
+                        cleared.append(Path(fp).name)
+                    except Exception:
+                        pass
+            self._send_json(200, {
+                "layer": "source",
+                "cleared": cleared,
+                "count": len(cleared),
+                "message": f"来源快照已清理 {len(cleared)} 个文件",
+            })
+
+        elif path == "/api/cache/clear/kline":
+            # G7: 清K线数据库缓存（var/cache/kline_daily/*.pkl）
+            kline_dir = _PROJECT_ROOT / "var" / "cache" / "kline_daily"
+            cleared_count = 0
+            if kline_dir.exists():
+                for pkl in kline_dir.glob("*.pkl"):
+                    try:
+                        pkl.unlink()
+                        cleared_count += 1
+                    except Exception:
+                        pass
+            self._send_json(200, {
+                "layer": "kline",
+                "cleared_count": cleared_count,
+                "message": f"K线数据库已清理 {cleared_count} 个缓存文件",
+            })
+
+        elif path == "/api/cache/clear/skill":
+            # G7: 清技能结果库缓存（output/mask_cache/*.json）
+            mask_dir = _PROJECT_ROOT / "output" / "mask_cache"
+            cleared_count = 0
+            if mask_dir.exists():
+                for jf in mask_dir.glob("*.json"):
+                    try:
+                        jf.unlink()
+                        cleared_count += 1
+                    except Exception:
+                        pass
+            self._send_json(200, {
+                "layer": "skill",
+                "cleared_count": cleared_count,
+                "message": f"技能结果库已清理 {cleared_count} 个缓存文件",
+            })
 
         else:
             self._send_json(404, {"error": f"未知路径: {path}"})

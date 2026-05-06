@@ -100,6 +100,8 @@ def _fetch_loop(codes: list[str], days: int, batch: int = 50) -> dict:
     failed = 0
     bj_skipped = 0
     failed_codes: list[dict] = []
+    cache_hit_codes: list[str] = []
+    fetched_codes: list[dict] = []
     stale_codes: list[str] = []
     bar_maxes: list[str] = []
 
@@ -116,11 +118,17 @@ def _fetch_loop(codes: list[str], days: int, batch: int = 50) -> dict:
                 src = df.attrs.get("source", "")
                 if src == "cache":
                     cache_hit += 1
+                    cache_hit_codes.append(code)
                 elif src == "stale_cache":
                     stale_used += 1
                     stale_codes.append(code)
                 else:
                     fetched_ok += 1
+                    fetched_codes.append({
+                        "code": code,
+                        "provider": src or "unknown",
+                        "latest_date": str(df.attrs.get("latest_date", ""))[:10],
+                    })
                 try:
                     bar_maxes.append(str(df.index[-1])[:10])
                 except Exception:
@@ -145,6 +153,8 @@ def _fetch_loop(codes: list[str], days: int, batch: int = 50) -> dict:
         "failed": failed,
         "bj_skipped": bj_skipped,
         "failed_codes": failed_codes,
+        "cache_hit_codes": cache_hit_codes,
+        "fetched_codes": fetched_codes,
         "stale_codes": stale_codes,
         "data_time_max": max(bar_maxes) if bar_maxes else None,
         "duration_seconds": round(time.time() - t0, 1),
@@ -213,6 +223,8 @@ def _run_coordinator(codes: list[str], days: int, workers: int,
     totals: dict[str, int] = {"cache_hit": 0, "fetched_ok": 0, "stale_used": 0,
                                "failed": 0, "bj_skipped": 0}
     all_failed: list[dict] = []
+    all_cache_hit_codes: list[str] = []
+    all_fetched_codes: list[dict] = []
     all_stale: list[str] = []
     all_data_time_maxes: list[str] = []
 
@@ -235,6 +247,8 @@ def _run_coordinator(codes: list[str], days: int, workers: int,
                 for k in totals:
                     totals[k] += rpt.get(k, 0)
                 all_failed.extend(rpt.get("failed_codes", []))
+                all_cache_hit_codes.extend(rpt.get("cache_hit_codes", []))
+                all_fetched_codes.extend(rpt.get("fetched_codes", []))
                 all_stale.extend(rpt.get("stale_codes", []))
                 # 汇总各 worker 的 data_time_max（取全局 max）
                 dtm = rpt.get("data_time_max")
@@ -259,6 +273,8 @@ def _run_coordinator(codes: list[str], days: int, workers: int,
     return {
         **totals,
         "failed_codes": all_failed,
+        "cache_hit_codes": all_cache_hit_codes,
+        "fetched_codes": all_fetched_codes,
         "stale_codes": all_stale,
         "data_time_max": max(all_data_time_maxes) if all_data_time_maxes else None,
         "duration_seconds": round(time.time() - t0, 1),
@@ -443,6 +459,8 @@ def run_prefetch(
         "recovered_codes":  stats.get("recovered_codes",  []),
         "recovered_count":  stats.get("recovered_count",  0),
         "failed_codes":     stats.get("failed_codes",     []),
+        "cache_hit_codes":  stats.get("cache_hit_codes",  []),
+        "fetched_codes":    stats.get("fetched_codes",    []),
         "stale_codes":      stats.get("stale_codes",      []),
         "data_time_max":    stats.get("data_time_max"),
         "duration_seconds": stats.get("duration_seconds", 0),
