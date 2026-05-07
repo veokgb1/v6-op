@@ -77,7 +77,8 @@ const V6Nav = {
     { key: 'input',    label: '输入工坊', href: '/input.html',    icon: '✏️' },
     { key: 'reports',  label: '报告中心', href: '/reports.html',  icon: '📊' },
     { key: 'compare',  label: '报告对比', href: '/compare.html',  icon: '⚖️' },
-    { key: 'manage',   label: '管理中心', href: '/manage.html',   icon: '⚙' },
+    { key: 'manage',   label: '管理中心',  href: '/manage.html',          icon: '⚙' },
+    { key: 'canon',    label: '法典试点',  href: '/strategy_canon.html',  icon: '📖' },
   ],
 
   /** 渲染导航 HTML 并插入 #v6-nav 容器 */

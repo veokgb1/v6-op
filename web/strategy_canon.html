@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>法典试点 — V6OP</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    /* ── 策略台基础布局（与 strategy.html 相同）──────────────────── */
+    .strategy-layout {
+      display: grid;
+      grid-template-columns: 320px 1fr 340px;
+      grid-template-rows: 1fr;
+      height: calc(100vh - var(--header-h, 44px) - var(--action-bar-h, 52px));
+      gap: 0;
+      overflow: hidden;
+      transition: grid-template-columns 0.25s ease;
+    }
+    .strategy-layout.canon-left-expanded {
+      grid-template-columns: 560px 1fr 340px;
+    }
+    .strategy-panel {
+      overflow-y: auto;
+      padding: 12px 14px;
+      border-right: 1px solid var(--border);
+    }
+    .strategy-panel:last-child { border-right: none; }
+
+    /* ── 固定底部操作栏 ──────────────────────────────────────────── */
+    .action-bar {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      height: 52px;
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+      padding: 0 16px; z-index: 100;
+    }
+    .action-bar .run-meta {
+      margin-left: auto; font-size: 11px; color: var(--muted);
+      display: flex; align-items: center; gap: 10px;
+    }
+
+    /* ── 策略预览区 ──────────────────────────────────────────────── */
+    .query-preview-box {
+      background: var(--muted-bg, #1e1e1e); border: 1px solid var(--border);
+      border-radius: 6px; padding: 10px 12px;
+      font-size: 12px; font-family: var(--mono, monospace); color: var(--fg);
+      min-height: 60px; white-space: pre-wrap; word-break: break-all;
+      margin-bottom: 8px; transition: border-color 0.3s;
+    }
+    .query-preview-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+    .strategy-center-panel { min-height: 0; }
+    .strategy-center-panel #log-details[open] { display: flex; flex-direction: column; }
+    .strategy-center-panel #preview-skills,
+    .strategy-center-panel #preview-path { min-height: 46px; max-height: 70px; overflow: hidden; }
+    .strategy-center-panel #log-box { max-height: 42vh; }
+    body.v6op-running .strategy-center-panel { display: flex; flex-direction: column; overflow: hidden; }
+    body.v6op-running #query-preview-section {
+      flex: 0 0 auto; border: 1px solid var(--border); border-radius: 6px;
+      background: rgba(30,33,48,.72); padding: 6px 8px; margin-bottom: 6px;
+    }
+    body.v6op-running .query-preview-box { display: none; }
+    body.v6op-running #preview-source { display:block;min-height:0;max-height:26px;padding:0;margin:0;border:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:transparent;font-size:11px;line-height:1.5; }
+    body.v6op-running #log-details[open] { flex:1 1 auto;min-height:0;margin-top:4px!important; }
+    body.v6op-running #log-box { flex:1 1 auto;min-height:calc(100vh - var(--header-h,44px) - var(--action-bar-h,52px) - 185px);max-height:none;overscroll-behavior:contain; }
+    body.v6op-running .post-run-section { display:none; }
+
+    /* ── 启动预览 Modal ──────────────────────────────────────────── */
+    .run-preview-overlay { position:fixed;inset:0;z-index:900;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center; }
+    .run-preview-overlay.hidden { display:none!important; }
+    .run-preview-modal { background:var(--bg-panel);border:1px solid var(--border);border-radius:10px;width:min(600px,94vw);max-height:80vh;overflow-y:auto;padding:20px 22px; }
+    .run-preview-modal h3 { margin:0 0 14px;font-size:15px; }
+    .run-preview-table { width:100%;border-collapse:collapse;font-size:12px; }
+    .run-preview-table td { padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:top; }
+    .run-preview-table td:first-child { width:120px;color:var(--muted);white-space:nowrap; }
+    .run-preview-actions { display:flex;gap:10px;margin-top:16px;justify-content:flex-end; }
+
+    /* ── 法典来源区专属样式 ──────────────────────────────────────── */
+    .canon-header {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 10px;
+    }
+    .canon-badge {
+      font-size: 10px; background: var(--accent, #4a9eff); color: #000;
+      padding: 1px 6px; border-radius: 10px; font-weight: 700;
+    }
+    .canon-expand-btn {
+      margin-left: auto; font-size: 11px; padding: 2px 8px;
+    }
+
+    /* 模式切换按钮 */
+    .canon-mode-row {
+      display: flex; gap: 4px; margin-bottom: 10px;
+    }
+    .canon-mode-btn {
+      flex: 1; padding: 5px 2px; font-size: 11px; font-weight: 600;
+      border: 1px solid var(--border); border-radius: 4px;
+      background: var(--muted-bg, #1e1e1e); color: var(--fg);
+      cursor: pointer; text-align: center;
+    }
+    .canon-mode-btn.active {
+      background: var(--accent, #4a9eff); color: #000;
+      border-color: var(--accent, #4a9eff);
+    }
+
+    /* 模式面板 */
+    .canon-mode-panel { display: flex; flex-direction: column; gap: 8px; }
+
+    /* 模板按钮组 */
+    .canon-tpl-group { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+    .canon-tpl-btn {
+      font-size: 11px; padding: 3px 7px;
+      border: 1px solid var(--border); border-radius: 12px;
+      background: var(--muted-bg, #1e1e1e); color: var(--muted);
+      cursor: pointer; white-space: nowrap;
+    }
+    .canon-tpl-btn:hover { border-color: var(--accent, #4a9eff); color: var(--fg); }
+
+    /* 校验提示 */
+    .canon-validation { font-size: 11px; margin: 3px 0; }
+    .canon-valid-ok { color: var(--green, #4caf50); }
+    .canon-valid-error { color: var(--red, #f44336); margin: 1px 0; }
+    .canon-valid-warn { color: var(--yellow, #ffc107); margin: 1px 0; }
+
+    /* 试跑结果 */
+    .canon-preview-result {
+      background: var(--muted-bg, #1a1a2e); border: 1px solid var(--border);
+      border-radius: 6px; padding: 8px 10px; font-size: 11px;
+      margin-top: 4px;
+    }
+    .canon-preview-header { font-size: 12px; margin-bottom: 4px; color: var(--fg); font-weight: 600; }
+    .canon-preview-error { color: var(--red, #f44336); font-size: 12px; line-height: 1.5; }
+    .canon-preview-reason { font-size: 10px; color: var(--muted); display: block; margin-top: 3px; word-break: break-all; }
+    .canon-preview-hint  { font-size: 10px; color: var(--accent, #4a9eff); display: block; margin-top: 3px; }
+    .canon-preview-query { font-size: 10px; color: var(--muted); margin-bottom: 4px; word-break: break-all; }
+    .canon-elapsed       { font-size: 10px; color: var(--muted); margin-left: 6px; }
+
+    /* 板块/股票 chips */
+    .canon-sector-chips, .canon-code-chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+    .canon-sector-chip {
+      font-size: 11px; padding: 2px 8px; border-radius: 10px;
+      background: rgba(74, 158, 255, 0.15); border: 1px solid rgba(74,158,255,.4);
+      color: var(--fg); white-space: nowrap;
+    }
+    .canon-code-chip {
+      font-size: 11px; padding: 2px 8px; border-radius: 10px;
+      background: rgba(76, 175, 80, 0.15); border: 1px solid rgba(76,175,80,.4);
+      color: var(--fg); white-space: nowrap;
+    }
+
+    /* 联动板块勾选 */
+    .canon-sector-checklist { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; }
+    .canon-chk-item { display: flex; align-items: center; gap: 4px; font-size: 11px; cursor: pointer; }
+    .canon-chk-item input { cursor: pointer; }
+
+    /* 确认横幅 */
+    .canon-confirm-banner {
+      background: rgba(76,175,80,.15); border: 1px solid var(--green, #4caf50);
+      border-radius: 6px; padding: 6px 10px; font-size: 11px;
+      margin-bottom: 8px; word-break: break-all;
+    }
+    .canon-confirm-ok { color: var(--green, #4caf50); font-weight: 700; }
+
+    /* 最终 query 预览 */
+    .canon-final-query-box {
+      background: var(--muted-bg, #1e1e1e); border: 1px solid var(--accent, #4a9eff);
+      border-radius: 6px; padding: 8px 10px; font-size: 12px;
+      font-family: var(--mono, monospace); color: var(--fg);
+      min-height: 40px; white-space: pre-wrap; word-break: break-all;
+      margin: 4px 0;
+    }
+
+    /* 收藏区 */
+    .canon-fav-tabs { display: flex; gap: 4px; margin-bottom: 6px; }
+    .canon-fav-tab {
+      font-size: 11px; padding: 3px 8px; border: 1px solid var(--border);
+      border-radius: 4px; cursor: pointer;
+      background: var(--muted-bg, #1e1e1e); color: var(--muted);
+    }
+    .canon-fav-tab.active { background: var(--accent, #4a9eff); color: #000; border-color: var(--accent); }
+    .canon-fav-item {
+      display: flex; align-items: center; gap: 5px;
+      padding: 4px 0; border-bottom: 1px solid var(--border); font-size: 11px;
+    }
+    .canon-fav-id { font-size: 10px; color: var(--accent, #4a9eff); white-space: nowrap; }
+    .canon-fav-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: default; }
+    .canon-fav-count { font-size: 10px; color: var(--muted); white-space: nowrap; }
+    .canon-fav-load { font-size: 10px; padding: 1px 6px; }
+    .canon-fav-del  { font-size: 10px; padding: 1px 5px; color: var(--red, #f44336); background: none; border: none; cursor: pointer; }
+
+    /* 旧功能折叠 */
+    .canon-legacy-section { margin-top: 10px; }
+    .canon-legacy-section summary { font-size: 11px; color: var(--muted); cursor: pointer; }
+
+    /* Phase B 面板 */
+    .canon-phase-b-panel {
+      border: 1px solid rgba(74,158,255,.3); border-radius: 6px;
+      padding: 8px 10px; margin-top: 6px;
+    }
+    .canon-phase-label { font-size: 11px; font-weight: 700; margin-bottom: 6px; color: var(--accent, #4a9eff); }
+
+    /* 结果、模板组标题 */
+    .canon-sub-title { font-size: 11px; color: var(--muted); margin: 6px 0 3px; }
+
+    /* 按钮区 */
+    .canon-btn-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+
+    /* 右侧技能/结果区（与 strategy.html 相同） */
+    .results-area { display: flex; flex-direction: column; gap: 10px; }
+    .result-count-row { display: flex; align-items: baseline; gap: 8px; }
+
+    /* template/recent items */
+    .template-list { display: flex; flex-direction: column; gap: 6px; }
+    .template-item { display: flex;align-items:center;gap:6px;background:var(--muted-bg,#1e1e1e);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px; }
+    .template-item-name { flex:1;font-weight:500; }
+    .template-item-meta { font-size:10px;color:var(--muted); }
+
+    /* ── 原子字段行（CANON-002）────────────────────────────────────── */
+    .atom-group { margin: 2px 0 7px; }
+    .atom-group-title {
+      font-size: 10px; color: var(--muted); text-transform: uppercase;
+      letter-spacing: .05em; margin-bottom: 3px; padding-bottom: 2px;
+      border-bottom: 1px solid var(--border);
+    }
+    .atom-row {
+      display: flex; align-items: center; gap: 5px;
+      padding: 2px 0; flex-wrap: wrap; min-height: 22px;
+    }
+    .atom-row-forbidden { opacity: 0.45; cursor: default; }
+    .atom-label {
+      display: flex; align-items: center; gap: 4px;
+      cursor: pointer; font-size: 11px; white-space: nowrap; user-select: none;
+    }
+    .atom-label-text   { font-size: 11px; }
+    .atom-label-forbidden { font-size: 11px; text-decoration: line-through; color: var(--muted); }
+    .atom-forbidden-note  { font-size: 9px; color: var(--muted); margin-left: 2px; }
+    .atom-weak-note       { font-size: 9px; color: var(--yellow, #ffc107); margin-left: 4px; }
+    .atom-badge {
+      font-size: 9px; font-weight: 700; padding: 0 4px; border-radius: 3px; white-space: nowrap;
+    }
+    .atom-badge-strong    { background:rgba(76,175,80,.2);  color:var(--green,#4caf50); border:1px solid rgba(76,175,80,.4); }
+    .atom-badge-weak      { background:rgba(255,193,7,.2);  color:var(--yellow,#ffc107);border:1px solid rgba(255,193,7,.4); }
+    .atom-badge-forbidden { background:rgba(244,67,54,.12); color:var(--red,#f44336);   border:1px solid rgba(244,67,54,.3); }
+    .atom-badge-review    { background:rgba(255,152,0,.2);  color:#ff9800;              border:1px solid rgba(255,152,0,.4); }
+    .atom-params { display:flex; align-items:center; gap:3px; font-size:11px; }
+    .atom-params.hidden { display:none; }
+    .atom-param-op, .atom-param-val, .atom-param-lo, .atom-param-hi, .atom-param-n {
+      font-size: 11px; padding: 1px 3px;
+      border: 1px solid var(--border); border-radius: 3px;
+      background: var(--muted-bg, #1e1e1e); color: var(--fg);
+    }
+    .atom-op-label { font-size: 11px; color: var(--muted); }
+    .atom-unit     { font-size: 10px; color: var(--muted); }
+    .atom-query-label { font-size: 10px; color: var(--muted); margin: 5px 0 2px; }
+    .atom-query-display {
+      background: var(--muted-bg, #1e1e1e); border: 1px solid var(--border);
+      border-radius: 5px; padding: 5px 8px; font-size: 11px;
+      font-family: var(--mono, monospace); color: var(--muted);
+      min-height: 26px; word-break: break-all; margin-bottom: 4px;
+    }
+    .atom-query-display.atom-query-has-content {
+      color: var(--fg); border-color: var(--accent, #4a9eff);
+    }
+    .btn-ghost {
+      background: transparent !important; border-color: var(--border) !important;
+      color: var(--muted) !important;
+    }
+    .btn-ghost:hover { border-color: var(--muted) !important; color: var(--fg) !important; }
+  </style>
+</head>
+<body class="strategy-page">
+
+<!-- ── 导航 ────────────────────────────────────────────────────────── -->
+<nav class="v6-nav" id="v6-nav"></nav>
+
+<!-- ── 主体三栏布局 ─────────────────────────────────────────────────── -->
+<main class="strategy-layout" id="strategy-main-layout">
+
+  <!-- ══ 左侧：问财法典来源区 ══════════════════════════════════════════ -->
+  <section class="strategy-panel" id="canon-left-panel" aria-label="问财法典来源区">
+
+    <!-- 法典来源区 header -->
+    <div class="canon-header">
+      <span class="section-title" style="margin:0">问财法典来源区</span>
+      <span class="canon-badge">试点</span>
+      <button id="canon-expand-btn" class="btn btn-sm canon-expand-btn" type="button" title="放大来源区">⟷ 放大</button>
+    </div>
+
+    <!-- 确认横幅（确认来源后显示） -->
+    <div id="canon-confirm-banner" class="canon-confirm-banner hidden"></div>
+
+    <!-- 三模式切换 -->
+    <div class="canon-mode-row" id="canon-mode-row">
+      <button id="canon-mode-sector" class="canon-mode-btn" type="button" title="只生成板块 query，不进入 A股">
+        📊 只选板块
+      </button>
+      <button id="canon-mode-astock" class="canon-mode-btn" type="button" title="直接生成 A股 query，确认后进入 pipeline">
+        📈 只选 A股
+      </button>
+      <button id="canon-mode-linked" class="canon-mode-btn" type="button" title="板块试跑→勾选→拼 A股条件→确认">
+        🔗 板块联动选 A股
+      </button>
+    </div>
+
+    <!-- ── 模式一：只选板块 ────────────────────────────────────────── -->
+    <div id="canon-panel-sector" class="canon-mode-panel hidden">
+      <div id="sector-atom-rows"></div>
+
+      <div class="atom-query-label">生成的板块 Query：</div>
+      <div id="sector-atom-query" class="atom-query-display">（未勾选任何条件）</div>
+      <div id="sector-query-validation" class="canon-validation hidden"></div>
+
+      <div style="display:flex;align-items:center;gap:5px;margin:3px 0;font-size:11px">
+        <label for="sector-top-n-canon">取前</label>
+        <select id="sector-top-n-canon" style="width:56px;font-size:11px">
+          <option value="5">5</option><option value="10" selected>10</option>
+          <option value="20">20</option><option value="30">30</option>
+        </select>
+        <span>个</span>
+      </div>
+
+      <div class="canon-btn-row">
+        <button id="btn-sector-preview" class="btn btn-sm" type="button" disabled>🔍 预查板块样例</button>
+        <button id="btn-sector-confirm-source" class="btn btn-sm" type="button" disabled
+          style="background:var(--green,#4caf50);color:#000;font-weight:700;opacity:0.4">
+          ✔ 确认为来源
+        </button>
+      </div>
+      <div class="canon-btn-row" style="margin-top:3px">
+        <button id="btn-sector-cancel-source" class="btn btn-sm btn-ghost" type="button">✖ 取消确认</button>
+        <button id="btn-sector-clear" class="btn btn-sm btn-ghost" type="button">🗑 清空条件</button>
+        <button id="btn-save-sector-canon" class="btn btn-sm" type="button">☆ 收藏</button>
+      </div>
+      <div id="sector-save-status" class="hidden" style="font-size:11px;margin-top:4px"></div>
+      <div id="sector-preview-result" class="canon-preview-result hidden"></div>
+    </div>
+
+    <!-- ── 模式二：只选 A股 ────────────────────────────────────────── -->
+    <div id="canon-panel-astock" class="canon-mode-panel hidden">
+      <div id="astock-atom-rows"></div>
+
+      <div class="atom-query-label">生成的 A股 Query：</div>
+      <div id="astock-atom-query" class="atom-query-display">（未勾选任何条件）</div>
+      <div id="astock-query-validation" class="canon-validation hidden"></div>
+
+      <div class="canon-btn-row">
+        <button id="btn-astock-preview" class="btn btn-sm" type="button" disabled>🔍 预查问财样例</button>
+        <button id="btn-astock-confirm-source" class="btn btn-sm" type="button" disabled
+          style="background:var(--green,#4caf50);color:#000;font-weight:700;opacity:0.4">
+          ✔ 确认为来源
+        </button>
+      </div>
+      <div class="canon-btn-row" style="margin-top:3px">
+        <button id="btn-astock-cancel-source" class="btn btn-sm btn-ghost" type="button">✖ 取消确认</button>
+        <button id="btn-astock-clear" class="btn btn-sm btn-ghost" type="button">🗑 清空条件</button>
+        <button id="btn-save-astock-canon" class="btn btn-sm" type="button">☆ 收藏</button>
+      </div>
+      <div id="astock-save-status" class="hidden" style="font-size:11px;margin-top:4px"></div>
+      <div id="astock-preview-result" class="canon-preview-result hidden"></div>
+      <div class="form-hint mt4" style="font-size:10px;color:var(--muted)">
+        预查返回前 20 只股票做样例；确认后写入中间 Query 预览，底部"预览并启动"接入 pipeline。
+      </div>
+    </div>
+
+    <!-- ── 模式三：板块联动选 A股 ─────────────────────────────────── -->
+    <div id="canon-panel-linked" class="canon-mode-panel hidden">
+
+      <!-- Phase A -->
+      <div class="canon-phase-label">Phase A — 板块扫描</div>
+      <div id="linked-sector-atom-rows"></div>
+
+      <div class="atom-query-label">板块 Query：</div>
+      <div id="linked-sector-atom-query" class="atom-query-display">（未勾选任何条件）</div>
+      <div id="linked-sector-validation" class="canon-validation hidden"></div>
+
+      <div style="display:flex;align-items:center;gap:5px;margin:3px 0;flex-wrap:wrap">
+        <label for="linked-sector-top-n" style="font-size:11px">取前</label>
+        <select id="linked-sector-top-n" style="width:56px;font-size:11px">
+          <option value="5">5</option><option value="10" selected>10</option>
+          <option value="20">20</option>
+        </select>
+        <span style="font-size:11px">个</span>
+        <button id="btn-linked-sector-preview" class="btn btn-sm" type="button" disabled>🔍 预查板块样例</button>
+        <button id="btn-linked-sector-clear" class="btn btn-sm btn-ghost" type="button">🗑 清空</button>
+      </div>
+
+      <div id="linked-sector-result" class="canon-preview-result hidden"></div>
+
+      <div id="linked-sector-confirm-row" class="hidden mt4">
+        <button id="btn-linked-confirm-sectors" class="btn btn-sm"
+          style="background:var(--accent,#4a9eff);color:#000;font-weight:700" type="button">
+          ✔ 确认所选板块 → Phase B
+        </button>
+      </div>
+
+      <!-- 已确认板块显示 -->
+      <div id="linked-confirmed-sectors" class="hidden mt4"></div>
+
+      <!-- Phase B -->
+      <div id="linked-phase-b-panel" class="canon-phase-b-panel hidden">
+        <div class="canon-phase-label">Phase B — A股条件</div>
+        <div id="linked-astock-atom-rows"></div>
+
+        <div class="atom-query-label">A股 Query：</div>
+        <div id="linked-astock-atom-query" class="atom-query-display">（未勾选任何条件）</div>
+        <div id="linked-astock-validation" class="canon-validation hidden"></div>
+
+        <div class="canon-sub-title">最终 Query 预览</div>
+        <div id="linked-final-query-preview" class="canon-final-query-box">
+          （请先确认板块，再勾选 A股条件）
+        </div>
+        <div class="form-hint" style="font-size:10px">
+          格式：属于{板块}板块或{板块}板块，且{A股条件}
+        </div>
+
+        <div class="canon-btn-row">
+          <button id="btn-linked-preview" class="btn btn-sm" type="button" disabled>🔍 预查联动样例</button>
+          <button id="btn-linked-confirm-source" class="btn btn-sm" type="button" disabled
+            style="background:var(--green,#4caf50);color:#000;font-weight:700;opacity:0.4">
+            ✔ 确认为来源
+          </button>
+        </div>
+        <div class="canon-btn-row" style="margin-top:3px">
+          <button id="btn-linked-cancel-source" class="btn btn-sm btn-ghost" type="button">✖ 取消确认</button>
+          <button id="btn-linked-astock-clear" class="btn btn-sm btn-ghost" type="button">🗑 清空A股条件</button>
+          <button id="btn-save-linked-canon" class="btn btn-sm" type="button">☆ 收藏</button>
+        </div>
+        <div id="linked-save-status" class="hidden" style="font-size:11px;margin-top:4px"></div>
+        <div id="linked-preview-result" class="canon-preview-result hidden"></div>
+      </div>
+    </div>
+
+    <!-- ── 收藏库 ──────────────────────────────────────────────────── -->
+    <details class="mt12" open>
+      <summary class="section-title" style="cursor:pointer;user-select:none">
+        收藏库 <span style="font-size:10px;color:var(--muted)">SECTOR / ASTOCK / LINK</span>
+      </summary>
+      <div class="canon-fav-tabs mt4">
+        <button id="canon-fav-tab-astock" class="canon-fav-tab active" type="button">A股</button>
+        <button id="canon-fav-tab-sector" class="canon-fav-tab" type="button">板块</button>
+        <button id="canon-fav-tab-linked" class="canon-fav-tab" type="button">联动</button>
+      </div>
+      <div id="canon-fav-list-astock" style="min-height:30px"></div>
+      <div id="canon-fav-list-sector"  class="hidden" style="min-height:30px"></div>
+      <div id="canon-fav-list-linked"  class="hidden" style="min-height:30px"></div>
+    </details>
+
+    <!-- ── 旧功能（折叠） ──────────────────────────────────────────── -->
+    <details class="canon-legacy-section">
+      <summary>旧功能 / 高级（Bridge、最近输入、P1-P6）</summary>
+
+      <!-- Bridge（隐藏，不走主流程） -->
+      <div style="margin-top:8px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">问财二次验证 Bridge（当前试点不走此流程）</div>
+        <label style="font-size:11px">
+          <input type="checkbox" id="bridge-enabled" />
+          启用 Bridge
+        </label>
+        <div id="bridge-config" class="hidden" style="margin-top:6px">
+          <select id="bridge-mode" style="font-size:11px;width:100%">
+            <option value="constrained">约束当前股票池</option>
+            <option value="annotate">只给最终命中加标签</option>
+          </select>
+          <input type="text" id="bridge-query" class="mt4"
+            placeholder="Bridge 查询语句" style="font-size:11px" />
+          <input type="hidden" id="bridge-limit" value="0" />
+        </div>
+      </div>
+
+      <!-- P1-P6 预设（折叠为旧预设） -->
+      <div style="margin-top:8px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">旧 P1-P6 预设（不在主流程）</div>
+        <div class="preset-row">
+          <span class="preset-label" style="font-size:11px">预设：</span>
+          <button class="preset-btn" type="button" data-preset="P1">P1</button>
+          <button class="preset-btn" type="button" data-preset="P2">P2</button>
+          <button class="preset-btn" type="button" data-preset="P3">P3</button>
+          <button class="preset-btn" type="button" data-preset="P4">P4</button>
+          <button class="preset-btn" type="button" data-preset="P5">P5</button>
+          <button class="preset-btn" type="button" data-preset="P6">P6</button>
+        </div>
+      </div>
+
+      <!-- 最近输入（折叠到底部） -->
+      <div style="margin-top:8px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:4px">最近输入</div>
+        <div id="recent-inputs-list">
+          <span class="text-muted" style="font-size:11px">打开输入工坊后自动同步</span>
+        </div>
+      </div>
+    </details>
+
+    <!-- ── 隐藏：app.js 所需的来源字段 ───────────────────────────── -->
+    <div style="display:none" id="canon-legacy-sink" aria-hidden="true">
+      <!-- 来源类型：默认锁定 wencai -->
+      <input type="radio" name="source-type" value="manual" />
+      <input type="radio" name="source-type" value="all_a" />
+      <input type="radio" name="source-type" value="wencai" id="src-type-wencai-canon" checked />
+      <!-- 手动代码（buildStrategy fallback） -->
+      <textarea id="manual-codes"></textarea>
+      <input type="hidden" id="all-a-limit" value="0" />
+      <!-- 问财 query（canon JS 在确认时写入） -->
+      <textarea id="wencai-query"></textarea>
+      <input type="hidden" id="wencai-limit" value="0" />
+      <!-- 板块 query（让 app.js scanSectors 可用） -->
+      <textarea id="sector-query"></textarea>
+      <select id="sector-top-n"><option value="10" selected>10</option></select>
+      <!-- sector checklist/confirm/confirmed（供 confirmSectors() 用） -->
+      <div id="sector-checklist"></div>
+      <div id="sector-confirm-row" class="hidden"></div>
+      <div id="sector-confirmed" style="display:none"></div>
+      <!-- fav bars（app.js 检查但不强制需要） -->
+      <div id="wencai-fav-bar"></div>
+      <div id="sector-fav-bar"></div>
+      <!-- 旧模式按钮 -->
+      <button id="wm-btn-stock" type="button"></button>
+      <button id="wm-btn-sector" type="button"></button>
+      <!-- app.js 健康检查需要的状态节点；试点页不展示，但要避免旧初始化报错 -->
+      <span id="health-dot" class="health-dot"></span>
+      <span id="health-label"></span>
+    </div>
+
+  </section>
+
+  <!-- ══ 中间：策略预览 + 日志（与 strategy.html 完全相同）══════════ -->
+  <section class="strategy-panel strategy-center-panel" aria-label="策略预览">
+
+    <div id="center-alerts" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+
+    <div id="query-preview-section">
+      <div class="section-title section-title-help">
+        <span>最终 Query 预览</span>
+        <button class="btn btn-sm" id="btn-refresh-preview" type="button" style="font-size:10px">↺ 刷新</button>
+      </div>
+      <div class="query-preview-label">来源 / 模式</div>
+      <div id="preview-source" class="query-preview-box">—</div>
+      <div class="query-preview-label">技能链路</div>
+      <div id="preview-skills" class="query-preview-box">—</div>
+      <div class="query-preview-label">执行路径 / Bridge</div>
+      <div id="preview-path" class="query-preview-box">—</div>
+    </div>
+
+    <details id="log-details" style="margin-top:12px" open>
+      <summary class="section-title" style="cursor:pointer;user-select:none">
+        运行日志 <span id="status-badge" class="badge badge-idle" style="margin-left:6px">待机</span>
+        <button id="btn-force-stop" class="btn btn-danger btn-sm" type="button" style="float:right;margin-top:-3px">停止</button>
+      </summary>
+      <div id="log-box" class="log-box" style="margin-top:6px" aria-live="polite">
+        <div class="log-line">
+          <span class="log-ts">—</span>
+          <span class="log-INFO">等待启动…</span>
+        </div>
+      </div>
+    </details>
+
+    <details class="post-run-section" style="margin-top:8px">
+      <summary class="section-title" style="cursor:pointer;user-select:none">数据就绪状态</summary>
+      <div id="readiness-box" style="margin-top:6px">
+        <span class="text-muted" style="font-size:11px">运行后显示</span>
+      </div>
+    </details>
+
+    <details class="post-run-section" style="margin-top:8px">
+      <summary class="section-title" style="cursor:pointer;user-select:none">
+        数据标记
+        <button class="info-btn" type="button" data-help="data-markers" aria-label="数据标记说明">i</button>
+      </summary>
+      <div id="coverage-box" style="margin-top:6px">
+        <span class="text-muted" style="font-size:11px">运行后显示</span>
+      </div>
+    </details>
+
+    <details class="post-run-section" style="margin-top:8px">
+      <summary class="section-title" style="cursor:pointer;user-select:none">
+        本轮取数记录
+        <button class="info-btn" type="button" data-help="fetch-record" aria-label="本轮取数记录说明">i</button>
+      </summary>
+      <div id="prefetch-box" style="margin-top:6px">
+        <span class="text-muted" style="font-size:11px">运行后显示</span>
+      </div>
+    </details>
+
+    <details class="post-run-section" style="margin-top:8px">
+      <summary class="section-title" style="cursor:pointer;user-select:none">警告 / 标注</summary>
+      <div id="warnings-box" class="warnings-list" style="margin-top:6px">
+        <span class="text-muted" style="font-size:11px">运行后显示</span>
+      </div>
+    </details>
+
+    <details class="post-run-section" style="margin-top:8px">
+      <summary class="section-title" style="cursor:pointer;user-select:none">技能运行摘要</summary>
+      <div id="producer-box" style="margin-top:6px">
+        <span class="text-muted" style="font-size:11px">运行后显示</span>
+      </div>
+    </details>
+
+  </section>
+
+  <!-- ══ 右侧：技能 + 路径 + 结果（与 strategy.html 完全相同）══════ -->
+  <section class="strategy-panel" aria-label="技能与结果">
+
+    <div>
+      <div class="section-title">技能选择</div>
+      <div id="skill-list" class="checkbox-group">
+        <!-- 由 app.js buildSkillList() 动态生成 -->
+      </div>
+    </div>
+
+    <div class="mt12">
+      <div class="section-title">执行路径</div>
+      <div class="radio-group">
+        <label>
+          <input type="radio" name="path-type" value="sequential" />
+          顺序漏斗 <span class="tag tag-ok" style="font-size:10px">sequential</span>
+        </label>
+        <label>
+          <input type="radio" name="path-type" value="parallel_and" checked />
+          并行取交集 <span class="tag tag-strict" style="font-size:10px">parallel_and</span>
+        </label>
+        <label>
+          <input type="radio" name="path-type" value="simple_hybrid" />
+          简单混合<span class="tag tag-weak" style="font-size:10px">simple_hybrid</span>
+        </label>
+      </div>
+      <div class="mt8">
+        <label for="run-scope-limit" class="query-preview-label">运行规模</label>
+        <select id="run-scope-limit">
+          <option value="500" selected>测试 500</option>
+          <option value="2000">测试 2000</option>
+          <option value="0">全量</option>
+        </select>
+        <div class="form-hint">运行规模是本轮 pipeline 闸门：来源与 Bridge 先完整形成股票池，再限制进入后续所有技能和执行路径的股票数量。</div>
+      </div>
+    </div>
+
+    <div class="mt12">
+      <div class="result-count-row">
+        <span id="hit-count" class="hit-count">—</span>
+        <span class="hit-count-label">只股票命中</span>
+        <span id="hit-scope-hint" style="font-size:11px;color:var(--muted)"></span>
+      </div>
+      <div id="hit-list" class="hit-list">
+        <span class="text-muted" style="font-size:12px">运行后显示命中列表与中文解释</span>
+      </div>
+    </div>
+
+    <div class="mt8">
+      <div class="section-title">失败 / 未分析</div>
+      <div id="failed-list" class="failed-list">
+        <span class="text-muted">无失败代码</span>
+      </div>
+    </div>
+
+    <div id="stale-list" class="stale-list hidden"></div>
+
+    <details id="global-explanation-section" class="result-details hidden" style="margin-top:8px">
+      <summary class="result-details-summary">
+        🔍 本轮全局解释（五层诊断）
+        <span id="why-zero-badge" class="tag tag-warn hidden">命中 0 归因</span>
+      </summary>
+      <div id="global-explanation-body" class="result-details-body">
+        <span class="text-muted">运行后显示</span>
+      </div>
+    </details>
+
+    <details id="data-provenance-section" class="result-details hidden" style="margin-top:8px">
+      <summary class="result-details-summary">📊 本轮数据血缘摘要</summary>
+      <div id="data-provenance-body" class="result-details-body">
+        <span class="text-muted">运行后显示</span>
+      </div>
+    </details>
+
+    <details id="bridge-result-section" class="result-details hidden" style="margin-top:8px">
+      <summary class="result-details-summary">🔗 Bridge 二次验证结果</summary>
+      <div id="bridge-result-body" class="result-details-body">
+        <span class="text-muted">未启用 Bridge</span>
+      </div>
+    </details>
+
+    <div class="mt8">
+      <div id="report-links" class="report-links">
+        <a class="report-link" href="/api/result" target="_blank">📄 run_report.json</a>
+        <a class="report-link" href="/reports.html">📊 报告中心</a>
+      </div>
+    </div>
+
+  </section>
+</main>
+
+<!-- ── 固定底部操作栏（与 strategy.html 完全相同）────────────────── -->
+<div class="action-bar">
+  <button id="btn-run" class="btn btn-primary" type="button">▶ 预览并启动</button>
+  <button id="btn-abort" class="btn btn-danger" type="button" disabled>⏹ 中止</button>
+  <span id="run-spinner" class="spinner hidden"></span>
+  <button id="btn-save-template" class="btn btn-sm" type="button">💾 保存模板</button>
+  <button id="btn-clear-log" class="btn btn-sm" type="button">🗑 清空日志</button>
+  <button id="btn-reset-params" class="btn btn-sm" type="button" title="恢复默认参数">↺ 默认参数</button>
+  <button id="btn-view-report" class="btn btn-sm" type="button">📄 查看报告</button>
+  <div class="run-meta">
+    <span>run_id：<span id="run-id" class="monospace">—</span></span>
+  </div>
+</div>
+
+<!-- ── 启动预览 Modal ────────────────────────────────────────────────── -->
+<div id="run-preview-overlay" class="run-preview-overlay hidden" role="dialog" aria-modal="true">
+  <div class="run-preview-modal">
+    <h3>▶ 确认启动策略</h3>
+    <table class="run-preview-table" id="run-preview-table">
+      <tbody id="run-preview-body"></tbody>
+    </table>
+    <div class="run-preview-actions">
+      <button class="btn btn-sm" id="btn-preview-cancel" type="button">取消</button>
+      <button class="btn btn-primary" id="btn-preview-confirm" type="button">确认启动</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 保存模板 Modal ────────────────────────────────────────────────── -->
+<div id="template-save-overlay" class="run-preview-overlay hidden" role="dialog" aria-modal="true">
+  <div class="run-preview-modal">
+    <h3>💾 保存策略模板</h3>
+    <div class="form-row mt4">
+      <label for="template-name-input">模板名称</label>
+      <input type="text" id="template-name-input" placeholder="例如：AI板块-CZSC+KLine" style="flex:1" />
+    </div>
+    <div id="template-list" class="template-list mt8">
+      <div class="text-muted" style="font-size:11px">加载中…</div>
+    </div>
+    <div class="run-preview-actions">
+      <button class="btn btn-sm" id="btn-template-cancel" type="button">关闭</button>
+      <button class="btn btn-primary" id="btn-template-save" type="button">保存当前策略</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 帮助弹窗 ──────────────────────────────────────────────────────── -->
+<div id="help-overlay" class="help-overlay hidden">
+  <div class="help-popover" id="help-popover">
+    <div class="help-popover-header">
+      <span id="help-title"></span>
+      <button onclick="closeHelp()" class="btn btn-sm">✕</button>
+    </div>
+    <div id="help-body" class="help-body"></div>
+  </div>
+</div>
+
+<script src="/js/common.js"></script>
+<script src="/app.js"></script>
+<script src="/js/strategy.js"></script>
+<script src="/js/canon_source_pilot.js"></script>
+
+<script>
+/* 法典试点：左栏放大时同步更新 layout grid */
+(function () {
+  var expandBtn = document.getElementById('canon-expand-btn');
+  var layout    = document.getElementById('strategy-main-layout');
+  if (expandBtn && layout) {
+    expandBtn.addEventListener('click', function () {
+      layout.classList.toggle('canon-left-expanded');
+    });
+  }
+
+  /* bridge-enabled checkbox 控制显示（旧功能区内） */
+  var bridgeChk = document.getElementById('bridge-enabled');
+  var bridgeCfg = document.getElementById('bridge-config');
+  if (bridgeChk && bridgeCfg) {
+    bridgeChk.addEventListener('change', function () {
+      bridgeCfg.classList.toggle('hidden', !this.checked);
+    });
+  }
+})();
+</script>
+
+</body>
+</html>

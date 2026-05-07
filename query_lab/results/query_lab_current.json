@@ -1,14 +1,14 @@
 ﻿{
-    "pid":  7296,
-    "started_at":  "2026-05-07T17:30:35",
-    "route":  "astock",
-    "group":  "A12R_code_pool_repair",
+    "pid":  16976,
+    "started_at":  "2026-05-07T19:35:19",
+    "route":  "sector",
+    "group":  "S9_return_enrichment",
     "limit":  0,
     "repeat":  1,
     "sleep_ms":  3000,
-    "fetch_limit":  100,
+    "fetch_limit":  20,
     "query_timeout_sec":  45,
-    "stdout_log":  "F:\\v.6\\v6-op\\query_lab\\results\\logs\\query_lab_astock_A12R_code_pool_repair_20260507_173035.log",
-    "stderr_log":  "F:\\v.6\\v6-op\\query_lab\\results\\logs\\query_lab_astock_A12R_code_pool_repair_20260507_173035.err.log",
-    "command":  ".\\.venv\\Scripts\\python.exe .\\query_lab\\scripts\\run_query_lab.py --route astock --repeat 1 --sleep-ms 3000 --group A12R_code_pool_repair --fetch-limit 100 --query-timeout-sec 45"
+    "stdout_log":  "F:\\v.6\\v6-op\\query_lab\\results\\logs\\query_lab_sector_S9_return_enrichment_20260507_193519.log",
+    "stderr_log":  "F:\\v.6\\v6-op\\query_lab\\results\\logs\\query_lab_sector_S9_return_enrichment_20260507_193519.err.log",
+    "command":  ".\\.venv\\Scripts\\python.exe .\\query_lab\\scripts\\run_query_lab.py --route sector --repeat 1 --sleep-ms 3000 --group S9_return_enrichment --fetch-limit 20 --query-timeout-sec 45"
 }

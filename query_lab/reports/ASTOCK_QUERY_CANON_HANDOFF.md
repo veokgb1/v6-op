@@ -487,18 +487,53 @@ powershell -ExecutionPolicy Bypass -File .\query_lab\scripts\query_lab_guard.ps1
 
 ## 11. 当前遗留事项
 
-本轮“问财选A股”收口，但还有这些后续事项：
+本轮”问财选A股”收口，但还有这些后续事项：
 
 - 数据源入口治理：把 `pywencai/www.iwencai.com` 与官方 `openapi.iwencai.com` 对齐。
-- 问财选板块：需要单独做 sector/zhishu 法典。
+- 问财选板块：已完成 S1-S9 实测（见 `SECTOR_QUERY_CANON_HANDOFF.md`）。
 - 正式 canon 发布：当前报告和字典是候选基础，promote 仍需人工确认。
 - 输入工坊矩阵：后续要基于 strong/weak/forbidden 做 UI。
 - 应用层 intersection：需要接入策略台 pipeline，解决代码池复问不可行的问题。
+- Adapter 升级：当前 adapter 只返回 codes；A_return_contract 确认返回字段更丰富，建议 V6-OP 应用层利用。
+
+## 11.5 问财选A股返回契约补确认（A_return_contract）
+
+**实测日期**: 2026-05-07  
+**脚本**: `query_lab/scripts/inspect_astock_return_contract.py`  
+**完整报告**: `query_lab/reports/astock_return_contract_report.md`
+
+### 核心结论（8 条 AR-001 到 AR-008 全部通过）
+
+**问财选A股从不只返回股票代码。每次 pywencai 结果都包含：**
+
+| 字段 | 类型 | 出现规律 |
+|------|------|---------|
+| `股票代码` | 必返回 | 全部 query |
+| `股票简称` | 必返回 | 全部 query（中文名称始终存在） |
+| `最新价` | 必返回 | 全部 query |
+| `今日涨跌幅` 或 `涨跌幅:前复权[日期]` | 必返回 | 全部 query（形式取决于 query 写法） |
+| 条件相关字段 | 条件触发 | 成交额/换手率/量比/主力净流入/市值/板块 分别触发对应列 |
+| OHLC 四价（前复权） | 条件触发 | 含”涨幅”条件或多条件组合时出现 |
+| 行业字段 | 条件触发 | 含板块名条件时出现（`同花顺行业`、`所属行业`） |
+
+**return_object_type**: 全部 `stock_with_quote`（0 条 `stock_code_only`）
+
+### 对 Pipeline 的影响
+
+当前 adapter 只提取 codes，丢弃了股票简称、最新价、条件字段。策略台/报告中心可以直接从 pywencai 结果行中提取中文名称和行情数据，**无需额外 quote API**。
+
+### 后续建议补测（可新增 A17 组）
+
+```text
+A17-001  今日收盘价站上5日均线    → 确认均线条件是否触发价格/均线字段
+A17-002  股票代码为000001         → 代码查询时返回什么字段
+A17-003  通鼎互联，今日涨幅        → 领涨股简称接 astock 的可行性验证
+```
 
 ## 12. 一句话交接
 
 如果后来者只读一段，就读这一段：
 
 ```text
-问财选A股已经完成 A1-A15 + A12R 实测。稳定表达看 stable_dictionary.md，风险表达看 risk_dictionary.md，禁问看 forbidden_dictionary.md。代码池复问已经确认不可交给问财，中文 Query 和 pywencai find 都不可靠，V6-OP 必须在应用层做 intersection。以后新增说法先写 cases，再用 query_lab_guard.ps1 小批量跑，FetchLimit 默认 100，QueryTimeoutSec 默认 45，测试器只生成候选，人工确认后才能进入正式法典。
+问财选A股已经完成 A1-A15 + A12R + A_return_contract 实测。稳定表达看 stable_dictionary.md，风险表达看 risk_dictionary.md，禁问看 forbidden_dictionary.md。代码池复问已经确认不可交给问财，V6-OP 必须在应用层做 intersection。返回契约已确认：问财不只返回代码，每次都带股票简称、最新价、条件相关字段，pipeline 应直接提取，无需额外 quote 调用。以后新增说法先写 cases，再用 query_lab_guard.ps1 小批量跑，FetchLimit 默认 100，QueryTimeoutSec 默认 45，测试器只生成候选，人工确认后才能进入正式法典。
 ```

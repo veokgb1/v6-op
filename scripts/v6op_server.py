@@ -522,6 +522,48 @@ class V6OPHandler(BaseHTTPRequestHandler):
                     "error": f"板块扫描模块异常: {exc}",
                 })
 
+        elif path == "/api/wencai/preview":
+            # 法典试点：A股轻量预览（limit ≤ 100，不写磁盘）
+            body = self._read_body()
+            try:
+                req = json.loads(body.decode("utf-8")) if body else {}
+            except json.JSONDecodeError as exc:
+                self._send_json(400, {"error": f"JSON 解析失败: {exc}", "codes": [], "count": 0, "status": "error"})
+                return
+
+            query = str(req.get("query") or "").strip()
+            if not query:
+                self._send_json(400, {"error": "query 不能为空", "codes": [], "count": 0, "status": "error"})
+                return
+            try:
+                limit = max(1, min(100, int(req.get("limit") or 20)))
+            except (TypeError, ValueError):
+                limit = 20
+
+            try:
+                import wencai_source as _ws  # type: ignore
+                result = _ws.run(query=query, limit=limit, out=None)
+                codes = result.get("scope_codes", [])
+                status = result.get("status", "unknown")
+                note = result.get("note", "")
+                self._send_json(200, {
+                    "status": status,
+                    "codes": codes[:limit],
+                    "count": result.get("scope_count", len(codes)),
+                    "query": query,
+                    "elapsed_s": result.get("elapsed_s"),
+                    "note": note,
+                    "error": note if status != "ok" else None,
+                })
+            except Exception as exc:
+                self._send_json(500, {
+                    "status": "error",
+                    "codes": [],
+                    "count": 0,
+                    "query": query,
+                    "error": f"A股预览模块异常: {exc}",
+                })
+
         elif path == "/api/cache/clear/source":
             # G7: 清来源快照缓存（output/current/wencai_scope.json 等 scope 文件）
             import glob as _glob

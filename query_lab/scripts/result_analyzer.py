@@ -77,6 +77,14 @@ class AnalysisResult:
     failure_type: str          # none / api_error / session_error / empty_result / invalid_query
     failure_reason_zh: str
     notes: str
+    return_object_type: str = ""
+    raw_columns: str = ""
+    extracted_sector_names: str = ""
+    extracted_index_codes: str = ""
+    extracted_stock_codes: str = ""
+    extracted_stock_names: str = ""
+    extracted_reason_text: str = ""
+    next_pipeline_route: str = ""
 
 
 @dataclass
@@ -231,6 +239,14 @@ class ResultAnalyzer:
             result_count=result_count,
             elapsed_ms=elapsed_ms,
             raw_error=raw_error,
+            return_object_type=d.get("return_object_type", ""),
+            raw_columns=d.get("raw_columns", ""),
+            extracted_sector_names=d.get("extracted_sector_names", ""),
+            extracted_index_codes=d.get("extracted_index_codes", ""),
+            extracted_stock_codes=d.get("extracted_stock_codes", ""),
+            extracted_stock_names=d.get("extracted_stock_names", ""),
+            extracted_reason_text=d.get("extracted_reason_text", ""),
+            next_pipeline_route=d.get("next_pipeline_route", ""),
         )
 
         # ── invalid_query ──

@@ -1,0 +1,556 @@
+{
+  "generated_at": "2026-05-07T16:12:24",
+  "source": "A1-A10 accepted completed QueryLab runs",
+  "groups": {
+    "A1_basic": "run_20260507_150529",
+    "A2_synonym": "run_20260507_150925",
+    "A3_combo": "run_20260507_151853",
+    "A4_risky": "run_20260507_152032",
+    "A5_forbidden": "run_20260507_152351",
+    "A6_time_window": "run_20260507_154006",
+    "A7_numeric_relative": "run_20260507_154212",
+    "A8_capital_flow": "run_20260507_154454",
+    "A9_technical_shape": "run_20260507_154831",
+    "A10_complex_boundary": "run_20260507_155054"
+  },
+  "strong_count": 54,
+  "weak_count": 17,
+  "forbidden_count": 10,
+  "review_count": 1,
+  "strong_queries": [
+    {
+      "query_text": "今日涨幅大于3%",
+      "group": "A3_combo",
+      "field_atoms": "今日涨幅",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日涨幅大于5%",
+      "group": "A1_basic",
+      "field_atoms": "今日涨幅",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日涨幅大于3%，非ST",
+      "group": "A1_basic",
+      "field_atoms": "今日涨幅|非ST",
+      "condition_count": 2,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日成交额大于3亿",
+      "group": "A2_synonym",
+      "field_atoms": "今日成交额",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日成交额大于5亿",
+      "group": "A1_basic",
+      "field_atoms": "今日成交额",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日换手率大于5%",
+      "group": "A1_basic",
+      "field_atoms": "今日换手率",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日换手率大于10%",
+      "group": "A1_basic",
+      "field_atoms": "今日换手率",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日量比大于1.5",
+      "group": "A1_basic",
+      "field_atoms": "今日量比",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日量比大于2",
+      "group": "A1_basic",
+      "field_atoms": "今日量比",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "流通市值在30亿到150亿之间",
+      "group": "A7_numeric_relative",
+      "field_atoms": "流通市值",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "流通市值在80亿到300亿之间",
+      "group": "A1_basic",
+      "field_atoms": "流通市值",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "总市值在50亿到300亿之间",
+      "group": "A1_basic",
+      "field_atoms": "总市值",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日主力净流入大于5000万",
+      "group": "A8_capital_flow",
+      "field_atoms": "今日主力净流入",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日主力净流入大于1亿",
+      "group": "A8_capital_flow",
+      "field_atoms": "今日主力净流入",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日主力净流入为正",
+      "group": "A8_capital_flow",
+      "field_atoms": "今日主力净流入",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "近5日涨幅大于10%",
+      "group": "A6_time_window",
+      "field_atoms": "近5日涨幅",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "近20日涨幅大于20%",
+      "group": "A1_basic",
+      "field_atoms": "近20日涨幅",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "非ST，非停牌",
+      "group": "A1_basic",
+      "field_atoms": "非ST|非停牌",
+      "condition_count": 2,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "上市超过60天，非ST，非停牌",
+      "group": "A1_basic",
+      "field_atoms": "上市超过60天|非ST|非停牌",
+      "condition_count": 3,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日收盘价大于5日均线",
+      "group": "A1_basic",
+      "field_atoms": "收盘价|5日均线",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今天涨幅大于3%",
+      "group": "A2_synonym",
+      "field_atoms": "今日涨幅",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "涨幅大于3%",
+      "group": "A2_synonym",
+      "field_atoms": "今日涨幅",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "涨幅超过3%",
+      "group": "A2_synonym",
+      "field_atoms": "今日涨幅",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "涨幅高于3%",
+      "group": "A2_synonym",
+      "field_atoms": "今日涨幅",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日涨幅超过3%",
+      "group": "A2_synonym",
+      "field_atoms": "今日涨幅",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日涨幅3%以上",
+      "group": "A2_synonym",
+      "field_atoms": "今日涨幅",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今天上涨超过3%",
+      "group": "A2_synonym",
+      "field_atoms": "今日涨幅",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日成交金额大于3亿",
+      "group": "A2_synonym",
+      "field_atoms": "今日成交额",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日成交额超过3亿",
+      "group": "A2_synonym",
+      "field_atoms": "今日成交额",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日成交额3亿以上",
+      "group": "A2_synonym",
+      "field_atoms": "今日成交额",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "主力资金净流入为正",
+      "group": "A2_synonym",
+      "field_atoms": "今日主力净流入",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日主力资金流入",
+      "group": "A2_synonym",
+      "field_atoms": "今日主力净流入",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "非ST，今日涨幅大于3%",
+      "group": "A3_combo",
+      "field_atoms": "非ST|今日涨幅",
+      "condition_count": 2,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "非ST，非停牌，今日涨幅大于3%",
+      "group": "A3_combo",
+      "field_atoms": "非ST|非停牌|今日涨幅",
+      "condition_count": 3,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "非ST，非停牌，今日涨幅大于3%，今日成交额大于3亿",
+      "group": "A3_combo",
+      "field_atoms": "非ST|非停牌|今日涨幅|今日成交额",
+      "condition_count": 4,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "非ST，非停牌，今日涨幅大于3%，今日成交额大于3亿，今日换手率大于5%",
+      "group": "A3_combo",
+      "field_atoms": "非ST|非停牌|今日涨幅|今日成交额|今日换手率",
+      "condition_count": 5,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "非ST，非停牌，今日涨幅大于3%，今日成交额大于3亿，今日换手率大于5%，流通市值在30亿到150亿之间",
+      "group": "A3_combo",
+      "field_atoms": "非ST|非停牌|今日涨幅|今日成交额|今日换手率|流通市值",
+      "condition_count": 6,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "非ST，非停牌，非新股，今日涨幅大于3%，今日成交额大于3亿，今日换手率大于5%，流通市值在30亿到150亿之间",
+      "group": "A3_combo",
+      "field_atoms": "非ST|非停牌|非新股|今日涨幅|今日成交额|今日换手率|流通市值",
+      "condition_count": 7,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "近3日涨幅大于5%",
+      "group": "A6_time_window",
+      "field_atoms": "近3日涨幅",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "近20日涨幅小于10%",
+      "group": "A6_time_window",
+      "field_atoms": "近20日涨幅",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "最近一个月涨幅大于20%",
+      "group": "A6_time_window",
+      "field_atoms": "近1月涨幅",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "近3日换手率大于10%",
+      "group": "A6_time_window",
+      "field_atoms": "近3日换手率",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "流通市值大于30亿且小于150亿",
+      "group": "A7_numeric_relative",
+      "field_atoms": "流通市值",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日涨幅大于5%，近5日涨幅小于0%",
+      "group": "A7_numeric_relative",
+      "field_atoms": "今日涨幅|近5日涨幅",
+      "condition_count": 2,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日涨幅小于5%，今日成交额大于5亿",
+      "group": "A7_numeric_relative",
+      "field_atoms": "今日涨幅|今日成交额",
+      "condition_count": 2,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日大单净流入大于3000万",
+      "group": "A8_capital_flow",
+      "field_atoms": "今日大单净流入",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日超大单净流入为正",
+      "group": "A8_capital_flow",
+      "field_atoms": "今日超大单净流入",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日资金净流入大于5000万",
+      "group": "A8_capital_flow",
+      "field_atoms": "今日资金净流入",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日收盘价站上5日均线",
+      "group": "A9_technical_shape",
+      "field_atoms": "收盘价|5日均线",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日收盘价大于20日均线",
+      "group": "A9_technical_shape",
+      "field_atoms": "收盘价|20日均线",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "MACD金叉",
+      "group": "A9_technical_shape",
+      "field_atoms": "MACD",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "KDJ金叉",
+      "group": "A9_technical_shape",
+      "field_atoms": "KDJ",
+      "condition_count": 1,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日涨幅大于3%，但近20日涨幅小于0%",
+      "group": "A10_complex_boundary",
+      "field_atoms": "今日涨幅|近20日涨幅",
+      "condition_count": 2,
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日涨幅大于5%，但主力净流入为负",
+      "group": "A10_complex_boundary",
+      "field_atoms": "今日涨幅|今日主力净流入",
+      "condition_count": 2,
+      "recommended_usage": "strong"
+    }
+  ],
+  "weak_queries": [
+    {
+      "query_text": "今日换手率大于近5日平均换手率的1.5倍",
+      "group": "A4_risky",
+      "risk_tags": "vague_condition",
+      "recommended_usage": "manual_only"
+    },
+    {
+      "query_text": "今日成交额大于近5日平均成交额的1.5倍",
+      "group": "A7_numeric_relative",
+      "risk_tags": "relative_comparison|vague_condition",
+      "recommended_usage": "manual_only"
+    },
+    {
+      "query_text": "收盘价站上JMA均线",
+      "group": "A9_technical_shape",
+      "risk_tags": "jma_unverified|non_standard_field",
+      "recommended_usage": "manual_only"
+    },
+    {
+      "query_text": "连续3日主力净流入为正",
+      "group": "A6_time_window",
+      "risk_tags": "consecutive_condition",
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "近5日成交额持续放大",
+      "group": "A6_time_window",
+      "risk_tags": "vague_condition|consecutive_condition",
+      "recommended_usage": "manual_only"
+    },
+    {
+      "query_text": "今日量比大于前2日量比",
+      "group": "A7_numeric_relative",
+      "risk_tags": "relative_comparison",
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日换手率大于近3日平均换手率",
+      "group": "A7_numeric_relative",
+      "risk_tags": "relative_comparison",
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日成交额是昨日成交额的2倍以上",
+      "group": "A7_numeric_relative",
+      "risk_tags": "relative_comparison",
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "近3日主力资金连续净流入",
+      "group": "A8_capital_flow",
+      "risk_tags": "consecutive_condition",
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "今日主力净流入占成交额比例大于5%",
+      "group": "A8_capital_flow",
+      "risk_tags": "relative_comparison",
+      "recommended_usage": "strong"
+    },
+    {
+      "query_text": "均线多头排列",
+      "group": "A9_technical_shape",
+      "risk_tags": "non_standard_field",
+      "recommended_usage": "manual_only"
+    },
+    {
+      "query_text": "今日K线为锤子线",
+      "group": "A9_technical_shape",
+      "risk_tags": "non_standard_field|candlestick",
+      "recommended_usage": "manual_only"
+    },
+    {
+      "query_text": "今日K线为阳包阴",
+      "group": "A9_technical_shape",
+      "risk_tags": "non_standard_field|candlestick",
+      "recommended_usage": "manual_only"
+    },
+    {
+      "query_text": "今日量比明显大于前两日，且今日涨幅大于3%",
+      "group": "A10_complex_boundary",
+      "risk_tags": "vague_condition|relative_comparison",
+      "recommended_usage": "manual_only"
+    },
+    {
+      "query_text": "今日成交额放大但股价涨幅不超过5%",
+      "group": "A10_complex_boundary",
+      "risk_tags": "vague_condition",
+      "recommended_usage": "manual_only"
+    },
+    {
+      "query_text": "主力净流入显著增加，且近5日涨幅小于10%",
+      "group": "A10_complex_boundary",
+      "risk_tags": "vague_condition",
+      "recommended_usage": "manual_only"
+    },
+    {
+      "query_text": "平台突破且成交额大于近5日平均成交额",
+      "group": "A10_complex_boundary",
+      "risk_tags": "vague_condition|relative_comparison|non_standard_field",
+      "recommended_usage": "manual_only"
+    }
+  ],
+  "forbidden_queries": [
+    {
+      "query_text": "强势股",
+      "group": "A4_risky",
+      "reason": "模糊词/预测词/英文查询，属于禁用分类"
+    },
+    {
+      "query_text": "放量上涨股票",
+      "group": "A4_risky",
+      "reason": "模糊词/预测词/英文查询，属于禁用分类"
+    },
+    {
+      "query_text": "短线龙头股",
+      "group": "A4_risky",
+      "reason": "模糊词/预测词/英文查询，属于禁用分类"
+    },
+    {
+      "query_text": "明天可能上涨的股票",
+      "group": "A4_risky",
+      "reason": "模糊词/预测词/英文查询，属于禁用分类"
+    },
+    {
+      "query_text": "有可能涨停的股票",
+      "group": "A4_risky",
+      "reason": "模糊词/预测词/英文查询，属于禁用分类"
+    },
+    {
+      "query_text": "A-shares with market cap between 3 and 15 billion",
+      "group": "A5_forbidden",
+      "reason": "中文预检失败：query_text 不含中文或含英文整句"
+    },
+    {
+      "query_text": "stocks with volume ratio greater than 2",
+      "group": "A5_forbidden",
+      "reason": "中文预检失败：query_text 不含中文或含英文整句"
+    },
+    {
+      "query_text": "",
+      "group": "A5_forbidden",
+      "reason": "中文预检失败：query_text 不含中文或含英文整句"
+    },
+    {
+      "query_text": "低位放量突破",
+      "group": "A10_complex_boundary",
+      "reason": "模糊词/预测词/英文查询，属于禁用分类"
+    },
+    {
+      "query_text": "图形走得很好",
+      "group": "A10_complex_boundary",
+      "reason": "模糊词/预测词/英文查询，属于禁用分类"
+    }
+  ]
+}

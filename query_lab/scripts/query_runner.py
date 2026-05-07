@@ -57,6 +57,14 @@ class QueryResult:
     risk_level: str = ""
     recommended_usage: str = ""
     notes: str = ""
+    return_object_type: str = ""
+    raw_columns: str = ""
+    extracted_sector_names: str = ""
+    extracted_index_codes: str = ""
+    extracted_stock_codes: str = ""
+    extracted_stock_names: str = ""
+    extracted_reason_text: str = ""
+    next_pipeline_route: str = ""
 
 
 def _read_csv(path: Path) -> list[dict]:
@@ -253,6 +261,14 @@ class QueryRunner:
         elapsed_ms = api_result.get("elapsed_ms", 0.0)
         raw_error = api_result.get("raw_error", "")
         actual_backend = api_result.get("actual_query_backend", row.get("actual_query_backend", ""))
+        return_object_type = api_result.get("return_object_type", "")
+        raw_columns = api_result.get("raw_columns", "")
+        extracted_sector_names = api_result.get("extracted_sector_names", "")
+        extracted_index_codes = api_result.get("extracted_index_codes", "")
+        extracted_stock_codes = api_result.get("extracted_stock_codes", "")
+        extracted_stock_names = api_result.get("extracted_stock_names", "")
+        extracted_reason_text = api_result.get("extracted_reason_text", "")
+        next_pipeline_route = api_result.get("next_pipeline_route", "")
 
         mode = "DRY" if self.dry_run else "LIVE"
         print(f"  [{mode}][rep={rep}] {query_id}  status={exec_status}  "
@@ -270,6 +286,14 @@ class QueryRunner:
             field_atoms=row.get("field_atoms", ""), risk_tags=row.get("risk_tags", ""),
             exec_status=exec_status, result_count=result_count,
             elapsed_ms=elapsed_ms, raw_error=raw_error, status="pending",
+            return_object_type=return_object_type,
+            raw_columns=raw_columns,
+            extracted_sector_names=extracted_sector_names,
+            extracted_index_codes=extracted_index_codes,
+            extracted_stock_codes=extracted_stock_codes,
+            extracted_stock_names=extracted_stock_names,
+            extracted_reason_text=extracted_reason_text,
+            next_pipeline_route=next_pipeline_route,
         )
 
     def _call_adapter_with_timeout(self, skill_type: str, query_text: str) -> dict:
@@ -292,7 +316,7 @@ class QueryRunner:
                     )
                 elif skill_type == "sector":
                     result_box.append(
-                        self.sector_adapter.query(query_text)
+                        self.sector_adapter.query(query_text, limit=self.fetch_limit)
                     )
                 else:
                     result_box.append({
