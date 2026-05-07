@@ -30,6 +30,24 @@ if str(_SCRIPTS_DIR) not in sys.path:
 from time_utils import iso_cst
 
 _CODE_PATTERN = re.compile(r"\b\d{6}\.(?:SZ|SH|BJ)\b", re.IGNORECASE)
+_PLAIN_CODE_PATTERN = re.compile(r"^\d{6}$")
+
+
+def _normalize_code(raw: str) -> str | None:
+    """Normalize user-entered A-share codes to the canonical 000001.SZ form."""
+    code = str(raw or "").strip().upper()
+    if not code:
+        return None
+    if _CODE_PATTERN.fullmatch(code):
+        return code
+    if _PLAIN_CODE_PATTERN.fullmatch(code):
+        prefix = code[:3]
+        if prefix in ("600", "601", "603", "605", "688", "689", "900"):
+            return f"{code}.SH"
+        if prefix.startswith("8") or prefix.startswith("4"):
+            return f"{code}.BJ"
+        return f"{code}.SZ"
+    return code
 
 
 def _read_ashare_codes(path: Path) -> list[str]:
@@ -54,7 +72,7 @@ def resolve(
     *,
     manual_codes: list[str] | None = None,
     wencai_query: str | None = None,
-    wencai_limit: int = 300,
+    wencai_limit: int = 0,
     ashare_path: Path | None = None,
     ashare_limit: int = 0,
     log_sink: Callable[[str, str], None] | None = None,
@@ -81,6 +99,7 @@ def resolve(
                 "scope_id": _make_scope_id("manual", []),
                 "source_type": "manual",
                 "scope_codes": [],
+                "codes": [],
                 "scope_count": 0,
                 "status": "error",
                 "error": "manual 来源未提供代码列表",
@@ -89,7 +108,7 @@ def resolve(
         seen: set[str] = set()
         deduped: list[str] = []
         for c in manual_codes:
-            k = c.strip().upper()
+            k = _normalize_code(c)
             if k and k not in seen:
                 seen.add(k)
                 deduped.append(k)
@@ -103,6 +122,7 @@ def resolve(
                 "scope_id": _make_scope_id("all_a", []),
                 "source_type": "all_a",
                 "scope_codes": [],
+                "codes": [],
                 "scope_count": 0,
                 "status": "error",
                 "error": f"ashare_codes.txt 未找到: {ashare_path}",
@@ -171,6 +191,7 @@ def resolve(
             "scope_id": _make_scope_id("unknown", []),
             "source_type": source_type,
             "scope_codes": [],
+            "codes": [],
             "scope_count": 0,
             "status": "error",
             "error": (
@@ -185,6 +206,7 @@ def resolve(
         "scope_id": scope_id,
         "source_type": source_type,
         "scope_codes": codes,
+        "codes": codes,
         "scope_count": len(codes),
         "status": status,
         "error": error,
@@ -203,13 +225,14 @@ if __name__ == "__main__":
     parser.add_argument("--type", default="manual", choices=["all_a", "manual", "wencai"])
     parser.add_argument("--codes", nargs="*", default=[])
     parser.add_argument("--query", default="")
-    parser.add_argument("--limit", type=int, default=50)
+    parser.add_argument("--limit", type=int, default=0)
     args = parser.parse_args()
 
     result = resolve(
         args.type,
         manual_codes=args.codes,
         wencai_query=args.query,
+        wencai_limit=args.limit,
         ashare_limit=args.limit,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))

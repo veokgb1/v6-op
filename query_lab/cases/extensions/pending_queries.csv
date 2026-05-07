@@ -1,0 +1,8 @@
+pending_id,op_domain,op_topic,skill_type,skill_name_zh,user_phrase,candidate_query_text,normalized_intent,source_origin,source_note,risk_tags,created_at,status,notes
+EXT-KDJ-001,technical_indicator,KDJ,astock,问财选A股,KDJ金叉,今日KDJ金叉,KDJ指标今日形成金叉,user_added,用户后续希望叠加KDJ技术条件,technical_indicator,2026-05-07,pending,待问财实测
+EXT-KDJ-002,technical_indicator,KDJ,astock,问财选A股,KDJ超卖区金叉,KDJ超卖区金叉,KDJ在超卖区形成金叉,user_added,超卖区金叉更强,technical_indicator,2026-05-07,pending,待问财实测
+EXT-MACD-001,technical_indicator,MACD,astock,问财选A股,MACD金叉,今日MACD金叉,MACD指标今日形成金叉,user_added,MACD金叉信号,technical_indicator,2026-05-07,pending,待问财实测
+EXT-MACD-002,technical_indicator,MACD,astock,问财选A股,MACD红柱放大,MACD红柱放大,MACD红柱持续放大信号,user_added,MACD动能增强,technical_indicator,2026-05-07,pending,待问财实测
+EXT-JMA-001,technical_indicator,JMA,astock,问财选A股,JMA均线向上,收盘价站上JMA均线,收盘价高于JMA均线,user_added,JMA非标准字段需验证,jma_unverified|non_standard_field,2026-05-07,pending,JMA可能不被问财支持
+EXT-BOLL-001,technical_indicator,BOLL,astock,问财选A股,BOLL上轨突破,收盘价突破布林线上轨,收盘价高于布林线上轨,user_added,BOLL突破信号,technical_indicator,2026-05-07,pending,待问财实测
+EXT-MA-001,technical_indicator,均线,astock,问财选A股,均线多头排列,均线多头排列,5日均线>20日均线且20日均线>60日均线,user_added,均线多头信号,technical_indicator,2026-05-07,pending,多条均线组合待验证

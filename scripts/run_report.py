@@ -98,20 +98,43 @@ def generate(execution_result: dict[str, Any], output_dir: Path) -> dict[str, Pa
         "failure_rate": fetch.get("failure_rate", 0.0),
         "data_time_max": fetch_data_time_max,
     }
+    run_scope = (
+        execution_result.get("run_scope")
+        or scope.get("run_scope")
+        or (execution_result.get("strategy") or {}).get("run_scope")
+        or {}
+    )
+    run_scope_limit = int(run_scope.get("limit") or (execution_result.get("strategy") or {}).get("run_scope_limit") or 0)
+    run_scope_label = run_scope.get("label") or (f"测试 {run_scope_limit}" if run_scope_limit > 0 else "全量")
+    data_coverage.update({
+        "source_original_count": run_scope.get("original_scope_count", scope.get("scope_count", 0)),
+        "run_scope_limit": run_scope_limit,
+        "run_scope_label": run_scope_label,
+        "run_scope_applied": bool(run_scope.get("applied", False)),
+        "run_scope_effective_count": run_scope.get("effective_scope_count", scope.get("scope_count", 0)),
+    })
 
     source_type = scope.get("source_type")
     source_limit = source_cfg.get("limit")
     source_count = scope.get("scope_count", 0)
-    # G3: 来源层语义 — 问财 PRO 5000 与全A 5000 显示不同语义
-    _limit_semantic = {
-        "wencai": f"最多接收问财返回结果（limit={source_limit}），不保证一定返回这么多",
-        "all_a":  f"本地A股名单最多截取 {source_limit} 只",
-        "manual": "手动输入，无上限限制",
-    }.get(source_type or "", f"limit={source_limit}")
+    unlimited = source_limit in (None, "", 0)
+    # G3: 来源层语义 — 默认不限档位，旧 limit 仅作为兼容字段显示
+    if unlimited:
+        _limit_semantic = {
+            "wencai": "不限档位，自动翻页直到没有新增股票",
+            "all_a":  "全量读取本地 A 股名单，不截取",
+            "manual": "手动输入，无上限限制",
+        }.get(source_type or "", "不限")
+    else:
+        _limit_semantic = {
+            "wencai": f"最多接收问财返回结果（limit={source_limit}），不保证一定返回这么多",
+            "all_a":  f"本地A股名单最多截取 {source_limit} 只",
+            "manual": "手动输入，无上限限制",
+        }.get(source_type or "", f"limit={source_limit}")
     source_notes = {
         "manual": "手动输入股票代码；不是外部接口返回。",
-        "all_a":  "读取本地 data/ashare_codes.txt，再按扫描档位上限截取。",
-        "wencai": "调用问财接口取得股票池；档位是最多取多少条，不保证一定返回这么多。",
+        "all_a":  "读取本地 data/ashare_codes.txt，全量进入来源股票池。",
+        "wencai": "调用问财接口取得股票池；默认不限档位，实际返回多少以问财接口为准。",
     }
     # G3 + G4-auth: source_info 诊断节
     source_info: dict[str, Any] = {
@@ -120,6 +143,7 @@ def generate(execution_result: dict[str, Any], output_dir: Path) -> dict[str, Pa
         "actual_count": source_count,
         "limit": source_limit,
         "limit_semantic": _limit_semantic,
+        "run_scope": run_scope,
         "note": source_notes.get(source_type or "", "未知股票来源"),
     }
     if source_type == "wencai":
@@ -139,6 +163,8 @@ def generate(execution_result: dict[str, Any], output_dir: Path) -> dict[str, Pa
         "stock_source": {
             "type": source_type,
             "actual_count": source_count,
+            "original_count": run_scope.get("original_scope_count", source_count),
+            "run_scope": run_scope,
             "limit": source_limit,
             "status": scope.get("status"),
             "note": source_notes.get(source_type or "", "未知股票来源"),
@@ -182,6 +208,8 @@ def generate(execution_result: dict[str, Any], output_dir: Path) -> dict[str, Pa
             },
             "selected_skills": execution_result.get("selected_skills", []),
             "path_type": execution_result.get("path_type", ""),
+            "run_scope_limit": run_scope_limit,
+            "run_scope": run_scope,
             "params": execution_result.get("params", {}),
         },
         "strategy_snapshot": execution_result.get("strategy", {}),
@@ -203,6 +231,7 @@ def generate(execution_result: dict[str, Any], output_dir: Path) -> dict[str, Pa
         "data_coverage": data_coverage,
         "data_sources": data_sources,
         "source_info": source_info,
+        "run_scope": run_scope,
         "global_explanation": execution_result.get("global_explanation", {}),
         "data_provenance": execution_result.get("data_provenance", {}),
         "bridge_result": execution_result.get("bridge_result", {}),
@@ -334,6 +363,10 @@ def _build_markdown(report: dict[str, Any]) -> str:
     kline_source = data_sources.get("kline", {})
     source_limit = source.get("limit")
     source_limit_text = "不限" if source_limit in (None, "", 0) else f"最多 {source_limit} 只"
+    run_scope = report.get("run_scope", {})
+    run_scope_limit = int(run_scope.get("limit") or 0)
+    run_scope_text = run_scope.get("label") or (f"测试 {run_scope_limit}" if run_scope_limit > 0 else "全量")
+    run_scope_origin = run_scope.get("original_scope_count", source.get("scope_count", "—"))
     lines.extend([
         "## 二、股票来源",
         "",

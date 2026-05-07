@@ -37,6 +37,8 @@
     document.querySelectorAll('input[name="source-type"], input[name="path-type"]')
       .forEach(function (r) { r.addEventListener('change', _updateQueryPreview); });
     document.getElementById('skill-list')?.addEventListener('change', _updateQueryPreview);
+    document.addEventListener('v6op:strategy-state-change', _updateQueryPreview);
+    _bindPreviewInputs();
   });
 
   // ── 拦截 Run 按钮，先显示预览 ──────────────────────────────────────
@@ -77,17 +79,24 @@
     const src = strategy.source || {};
     const skills = (strategy.skills || []).join(', ') || '—';
     const path = strategy.path_type || '—';
-    const bridge = strategy.bridge?.enabled
+    const bridge = strategy.bridge
       ? `${strategy.bridge.mode} | ${strategy.bridge.wencai_query || '—'}`
       : '未启用';
-    const sectLink = strategy.sector_linkage?.enabled
-      ? `板块联动 ✓ (${(strategy.sector_linkage.confirmed_sectors || []).join(', ')})`
+    const sect = src.sector_linkage || {};
+    const sectLink = sect.enabled
+      ? `板块联动 ✓ (${(sect.confirmed_sectors || []).join(', ')})`
       : '—';
+    const sourceLimitText = (src.limit == null || String(src.limit) === '0')
+      ? '不限（不截断）'
+      : String(src.limit);
+    const runScopeLimit = Number(strategy.run_scope_limit || 0);
+    const runScopeText = runScopeLimit > 0 ? `测试 ${runScopeLimit}` : '全量';
 
     const rows = [
       ['来源类型',   src.type || '—'],
       ['来源 Query', src.query || '—'],
-      ['来源 Limit', src.limit != null ? String(src.limit) : '—'],
+      ['来源档位', sourceLimitText],
+      ['运行规模', runScopeText],
       ['板块联动',   sectLink],
       ['技能链路',   skills],
       ['执行路径',   path],
@@ -122,6 +131,9 @@
     // 直接重现 app.js _doRun 逻辑：POST /api/run
     const btn = document.getElementById('btn-run');
     if (btn) btn.disabled = true;
+    if (typeof clearResult === 'function') clearResult();
+    if (typeof resetRunPollingState === 'function') resetRunPollingState();
+    if (typeof logClear === 'function') logClear();
     setRunningState(true);  // app.js 全局函数
     logLine('INFO', '策略台：启动管道…');
 
@@ -156,50 +168,77 @@
     if (btn) btn.addEventListener('click', _updateQueryPreview);
   }
 
-  function _updateQueryPreview() {
-    const sourceType = document.querySelector('input[name="source-type"]:checked')?.value || 'manual';
-    const pathType   = document.querySelector('input[name="path-type"]:checked')?.value || 'parallel_and';
-
-    let sourceStr = '';
-    if (sourceType === 'manual') {
-      const codes = (document.getElementById('manual-codes')?.value || '').trim();
-      sourceStr = `手动输入 | ${codes.split(/[\s,，]+/).filter(Boolean).length} 只`;
-    } else if (sourceType === 'all_a') {
-      const limit = document.getElementById('all-a-limit')?.value || '300';
-      sourceStr = `全 A 股 | STABLE ${limit}`;
-    } else {
-      const mode = window._wencaiMode || 'stock';
-      if (mode === 'sector') {
-        const sectors = window._confirmedSectors || [];
-        const phaseB  = document.getElementById('wencai-query')?.value || '';
-        const limit   = document.getElementById('wencai-limit')?.value || '300';
-        sourceStr = `板块联动 | 已确认: ${sectors.join(', ') || '(未确认)'}\n问财: ${phaseB}\n档位: ${limit}`;
-      } else {
-        const q     = document.getElementById('wencai-query')?.value || '';
-        const limit = document.getElementById('wencai-limit')?.value || '300';
-        sourceStr = `问财个股 | ${q}\n档位: ${limit}`;
-      }
-    }
-
-    // 技能
-    const checked = Array.from(document.querySelectorAll('#skill-list input[type=checkbox]:checked'))
-      .map(function (c) { return c.value; });
-    const skillsStr = checked.length ? checked.join(' → ') : '（未选技能）';
-
-    // 路径 + Bridge
-    const bridgeOn  = document.getElementById('bridge-enabled')?.checked;
-    const bridgeQ   = document.getElementById('bridge-query')?.value || '';
-    const bridgeStr = bridgeOn ? ` | Bridge: ${bridgeQ}` : '';
-    const pathStr   = pathType + bridgeStr;
-
-    _setPreview('preview-source', sourceStr);
-    _setPreview('preview-skills', skillsStr);
-    _setPreview('preview-path',   pathStr);
+  function _bindPreviewInputs() {
+    [
+      'wencai-query', 'sector-query', 'manual-codes',
+      'wencai-limit', 'sector-top-n', 'all-a-limit', 'run-scope-limit',
+      'bridge-enabled', 'bridge-mode', 'bridge-query', 'bridge-limit',
+      'wm-btn-stock', 'wm-btn-sector', 'btn-confirm-sectors',
+    ].forEach(function (id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      ['input', 'change', 'click'].forEach(function (eventName) {
+        el.addEventListener(eventName, function () {
+          setTimeout(_updateQueryPreview, 0);
+        });
+      });
+    });
   }
 
   function _setPreview(id, text) {
     const el = document.getElementById(id);
     if (el) el.textContent = text || '—';
+  }
+
+  function _updateQueryPreview() {
+    const sourceType = document.querySelector('input[name="source-type"]:checked')?.value || 'manual';
+    const pathType   = document.querySelector('input[name="path-type"]:checked')?.value || 'parallel_and';
+
+    function selectedText(id, fallback) {
+      const el = document.getElementById(id);
+      const value = el?.value || '';
+      if (value === '0') return '不限';
+      return el?.selectedOptions?.[0]?.textContent || value || fallback || '';
+    }
+
+    let sourceStr = '';
+    if (sourceType === 'manual') {
+      const codes = (document.getElementById('manual-codes')?.value || '').trim();
+      const count = codes ? codes.split(/[\s,，,]+/).filter(Boolean).length : 0;
+      sourceStr = `手动输入代码 | ${count} 只`;
+    } else if (sourceType === 'all_a') {
+      sourceStr = `全 A 股 | ${selectedText('all-a-limit', '不限')}`;
+    } else {
+      const mode = typeof getWencaiMode === 'function'
+        ? getWencaiMode()
+        : (document.getElementById('wm-btn-sector')?.classList.contains('active') ? 'sector' : 'stock');
+      const query = document.getElementById('wencai-query')?.value || '';
+      const limit = selectedText('wencai-limit', '不限');
+      if (mode === 'sector') {
+        const sectors = typeof getConfirmedSectors === 'function' ? getConfirmedSectors() : [];
+        const sectorQuery = document.getElementById('sector-query')?.value || '';
+        sourceStr = `问财板块联动\nPhase A: ${sectorQuery || '未填写'}\n已确认板块: ${sectors.join('、') || '未确认'}\nPhase B: ${query || '未填写'}\n档位: ${limit}`;
+      } else {
+        sourceStr = `问财个股 | ${query || '未填写'}\n档位: ${limit}`;
+      }
+    }
+
+    const checked = Array.from(document.querySelectorAll('#skill-list input[type=checkbox]:checked'))
+      .map(function (c) { return c.value; });
+    const skillsStr = checked.length ? checked.join(' -> ') : '未选择技能';
+
+    const bridgeOn = !!document.getElementById('bridge-enabled')?.checked;
+    const bridgeQ  = document.getElementById('bridge-query')?.value || '';
+    const bridgeMode = selectedText('bridge-mode', '');
+    const pathStr = bridgeOn
+      ? `${pathType} | Bridge(${bridgeMode}): ${bridgeQ || '未填写'}`
+      : pathType;
+    const runScopeEl = document.getElementById('run-scope-limit');
+    const runScope = runScopeEl?.selectedOptions?.[0]?.textContent || '全量';
+
+    _setPreview('preview-source', sourceStr);
+    _setPreview('preview-skills', skillsStr);
+    _setPreview('preview-path', `${pathStr}\n运行规模: ${runScope}`);
   }
 
   // ── 策略模板保存 / 恢复 ────────────────────────────────────────────

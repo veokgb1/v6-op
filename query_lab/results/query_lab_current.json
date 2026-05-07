@@ -1,0 +1,14 @@
+﻿{
+    "pid":  7296,
+    "started_at":  "2026-05-07T17:30:35",
+    "route":  "astock",
+    "group":  "A12R_code_pool_repair",
+    "limit":  0,
+    "repeat":  1,
+    "sleep_ms":  3000,
+    "fetch_limit":  100,
+    "query_timeout_sec":  45,
+    "stdout_log":  "F:\\v.6\\v6-op\\query_lab\\results\\logs\\query_lab_astock_A12R_code_pool_repair_20260507_173035.log",
+    "stderr_log":  "F:\\v.6\\v6-op\\query_lab\\results\\logs\\query_lab_astock_A12R_code_pool_repair_20260507_173035.err.log",
+    "command":  ".\\.venv\\Scripts\\python.exe .\\query_lab\\scripts\\run_query_lab.py --route astock --repeat 1 --sleep-ms 3000 --group A12R_code_pool_repair --fetch-limit 100 --query-timeout-sec 45"
+}

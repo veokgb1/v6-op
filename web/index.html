@@ -40,7 +40,7 @@
         </label>
         <label>
           <input type="radio" name="source-type" value="all_a" />
-          全 A 股（limit）
+        全 A 股
         </label>
         <label>
           <input type="radio" name="source-type" value="wencai" />
@@ -57,28 +57,11 @@
 
       <!-- 全 A 股面板 -->
       <div id="src-all-a" class="mt8 hidden">
-        <div class="form-row">
-          <label for="all-a-limit">扫描档位</label>
-          <select id="all-a-limit">
-            <option value="100">SAFE 100</option>
-            <option value="300" selected>STABLE 300</option>
-            <option value="500">TEST 500</option>
-            <option value="1000">PRO 1000</option>
-            <option value="2000">PRO 2000</option>
-            <!-- G3: 全A 5000 语义：本地A股名单截取，非问财 -->
-            <option value="5000">PRO 5000（本地名单截取上限）</option>
-          </select>
-        </div>
-        <div class="form-hint" id="all-a-limit-hint">默认 STABLE 300；超过 500 只需确认才能运行</div>
-        <div id="all-a-warn" class="alert alert-warn mt4 hidden">
+        <input type="hidden" id="all-a-limit" value="0" />
+        <div class="form-hint" id="all-a-limit-hint">全量读取本地 A 股名单，不按档位截断。</div>
+        <div id="all-a-warn" class="alert alert-warn mt4">
           <span class="alert-icon">⚠️</span>
-          <span id="all-a-warn-text">扫描只数较多，耗时可能较长。</span>
-        </div>
-        <div id="all-a-confirm-row" class="mt4 hidden">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="all-a-confirm" />
-            <span style="font-size:12px">我知道这会运行较长时间，确认继续</span>
-          </label>
+          <span id="all-a-warn-text">全 A 股通常会超过 300 / 500 / 2000 只；这里只提示，不再拦截运行。</span>
         </div>
       </div>
 
@@ -142,19 +125,10 @@
 
           <div class="form-row mt4" style="gap:4px;flex-wrap:wrap;align-items:center">
             <button id="btn-save-wencai-fav" class="btn btn-sm" type="button" title="收藏当前问财语句">☆ 收藏</button>
-            <label for="wencai-limit" style="margin-left:4px">档位</label>
-            <select id="wencai-limit">
-              <option value="100">SAFE 100</option>
-              <option value="300" selected>STABLE 300</option>
-              <option value="500">TEST 500</option>
-              <option value="1000">PRO 1000</option>
-              <option value="2000">PRO 2000</option>
-              <!-- G3: 问财 5000 语义：最多接收返回结果，不保证返回这么多 -->
-              <option value="5000">PRO 5000（最多接收问财返回结果）</option>
-            </select>
+            <input type="hidden" id="wencai-limit" value="0" />
           </div>
           <!-- G3: 动态语义提示 -->
-          <div id="wencai-limit-hint" class="form-hint">Key 缺失或接口失败时显示中文提示，不伪造成功</div>
+          <div id="wencai-limit-hint" class="form-hint">问财默认不限档位，自动翻页直到没有新增股票；实际返回多少以问财接口为准。</div>
         </div>
 
       </div><!-- /src-wencai -->
@@ -176,17 +150,7 @@
           </div>
           <input type="text" id="bridge-query" class="mt4"
             placeholder="例如：属于人工智能概念，或近5日主力资金净流入" />
-          <div class="form-row mt4" style="gap:4px;flex-wrap:wrap;align-items:center">
-            <label for="bridge-limit">问财上限</label>
-            <select id="bridge-limit">
-              <option value="100">100</option>
-              <option value="300" selected>300</option>
-              <option value="500">500</option>
-              <option value="1000">1000</option>
-              <option value="2000">2000</option>
-              <option value="5000">5000</option>
-            </select>
-          </div>
+          <input type="hidden" id="bridge-limit" value="0" />
           <div class="form-hint" id="bridge-hint">
             约束模式会先用问财结果与当前股票池取交集；标注模式不改变命中列表，只附加标签。
           </div>
@@ -223,6 +187,16 @@
         </label>
       </div>
       <div class="form-hint mt4">sequential / parallel_and / simple_hybrid 三种固定路径</div>
+    </div>
+
+    <div>
+      <div class="section-title">运行规模</div>
+      <select id="run-scope-limit">
+        <option value="500" selected>测试 500</option>
+        <option value="2000">测试 2000</option>
+        <option value="0">全量</option>
+      </select>
+      <div class="form-hint mt4">来源与 Bridge 先完整形成股票池，再限制进入后续所有技能和执行路径的股票数量。</div>
     </div>
 
     <!-- G6 Item 4: 启动按钮 + 实时进度状态区 -->
@@ -520,8 +494,8 @@
       <details class="ops-guide" open>
         <summary>压力测试怎么跑 <button class="info-btn" type="button" data-help="stress-guide" aria-label="压力测试说明">i</button></summary>
         <div class="ops-guide-body">
-          <div><b>1. 全A PRO 5000</b>：从本地A股名单最多截取 5000 只；这是名单上限，不是问财。</div>
-          <div><b>2. 问财 PRO 5000</b>：最多接收问财返回结果 5000 条；少于 5000 拿实际数，多于截断。</div>
+          <div><b>1. 全 A 股</b>：从本地 A 股名单全量读取，不再按档位截断。</div>
+          <div><b>2. 问财选股</b>：默认不限档位，自动翻页直到没有新增股票；实际返回多少以问财接口为准。</div>
           <div><b>3. 全技能硬交集</b>：缠论 + K线 + SMC + 波浪 + 排雷一起卡，结果为 0 很正常。</div>
           <div><b>4. 换技能重跑</b>：会重新启动一轮；K线数据库通常复用，不会自动清掉重拉。</div>
           <div><b>5. 换路径重跑</b>：并行/顺序/混合会重新组合技能；已有K线继续用。</div>

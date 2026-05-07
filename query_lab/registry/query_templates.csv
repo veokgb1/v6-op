@@ -1,0 +1,11 @@
+template_id,skill_key,skill_name_zh,group,template_zh,condition_count,field_atoms,unit_type,notes
+T001,astock,问财选A股,A1_basic,今日涨幅大于{pct}%,1,今日涨幅,百分比,单字段基础模板
+T002,astock,问财选A股,A1_basic,今日成交额大于{amt}亿,1,今日成交额,亿元,单字段基础模板
+T003,astock,问财选A股,A1_basic,流通市值在{min}亿到{max}亿之间,1,流通市值,亿元,区间模板
+T004,astock,问财选A股,A1_basic,今日换手率大于{pct}%,1,今日换手率,百分比,单字段基础模板
+T005,astock,问财选A股,A2_synonym,今日涨幅{pct}%以上,1,今日涨幅,百分比,3%以上同义模板
+T006,astock,问财选A股,A2_synonym,涨幅超过{pct}%,1,今日涨幅,百分比,涨幅超过同义模板
+T007,astock,问财选A股,A3_combo,非ST，非停牌，今日涨幅大于3%，今日成交额大于3亿,4,非ST|非停牌|今日涨幅|今日成交额,混合,组合阶梯
+T008,sector,问财选板块,S1_basic,今日涨幅大于{pct}%的板块,1,板块今日涨幅,百分比,板块单字段基础模板
+T009,sector,问财选板块,S1_basic,今日成交额大于{amt}亿的板块,1,板块今日成交额,亿元,板块单字段基础模板
+T010,sector,问财选板块,S2_synonym,涨幅超过{pct}%的板块,1,板块今日涨幅,百分比,板块同义模板

@@ -19,7 +19,7 @@ const PRESET_QUERIES = {
   P2: "非ST，非停牌，近60日区间跌幅大于30%，今日涨幅大于3%，今日成交额大于3亿，且今日换手率大于近5日平均换手率的1.5倍",
   P3: "非ST，近30日振幅小于15%，今日盘中最大涨幅大于7%，但今日收盘涨幅小于4%，流通市值小于150亿",
   P4: "剔除ST股，剔除上市天数小于300天，近60日跌幅大于20%，近5日内出现过涨停，今日收盘价大于20日均线，且今日换手率大于5%小于15%的股票",
-  P5: "流通市值在30亿到150亿之间，近30日振幅小于15%，今日成交量较昨日放大2倍以上，且今日收盘价创近30日新高",
+  P5: "流通市值在30亿到150亿之间，近30日振幅小于15%的A股",
   P6: "属于人工智能或低空经济概念，市净率PB小于4，机构持股比例大于10%，且近3日主力资金净流入排名前30的A股",
 };
 
@@ -196,8 +196,8 @@ const HELP_TEXT = {
   'stress-guide': {
     title: '压力测试怎么理解',
     body: [
-      '全 A PRO 5000 走本地A股名单，不走问财语句过滤。当前本地名单超过 5000 只，所以 PRO 5000 是“最多拿前 5000 只”，不是无上限完整全量。',
-      '问财 PRO 5000 是“最多取 5000 条这个问财语句返回的结果”。如果问财只返回 800，只会得到 800；如果问财返回 6000，系统最多保留 5000。',
+      '全 A 股现在走本地A股名单全量，不再按 300 / 500 / 2000 / 5000 档位截断。',
+      '问财现在默认不限档位，会自动翻页直到没有新增股票；实际能返回多少以问财接口为准。',
       '如果把缠论、K线、SMC、波浪、排雷全部勾上并且走并行取交集，结果为 0 很正常。这表示所有正向条件同时命中的股票没有，不一定是系统坏。',
       '重新点“启动管道”不会自动清掉 K线数据库。已经保存到本机的K线通常还会复用，电脑重启后也还在。',
       '问财来源本轮会重新查一次；后面是否能复用，主要看 K线数据库和技能结果库。以后可以再做“使用上一轮来源池继续跑”的按钮。',
@@ -264,8 +264,33 @@ const SKILL_PARAMS = {
 let _pollTimer       = null;
 let _lastResult      = null;
 let _lastEventCount  = 0;
+let _resultFetchedForRunId = null;
+let _currentRunStatus = 'idle';
 let _wencaiMode      = 'stock';  // 'stock' | 'sector'
 let _confirmedSectors = [];      // Phase A 已确认板块
+
+function getWencaiMode() {
+  return _wencaiMode;
+}
+
+function getConfirmedSectors() {
+  return [..._confirmedSectors];
+}
+
+function notifyStrategyStateChanged() {
+  document.dispatchEvent(new CustomEvent('v6op:strategy-state-change'));
+}
+
+function getRunScopeLimit() {
+  const el = $('run-scope-limit');
+  if (!el) return 0;
+  const n = parseInt(el.value || '0', 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function runScopeText(limit = getRunScopeLimit()) {
+  return limit > 0 ? `测试 ${limit}` : '全量';
+}
 
 // ── DOM 引用 ──────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -319,6 +344,7 @@ function moveSkillItem(skillId, delta) {
   else           parent.insertBefore(target, item);
   updateSkillMoveButtons();
   saveParams();
+  parent.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 function saveParams() {
@@ -341,19 +367,20 @@ function saveParams() {
       if (Object.keys(sp).length > 0) skillParams[id] = sp;
     }
     const wencaiQuery  = document.getElementById('wencai-query')?.value  || '';
-    const wencaiLimit  = document.getElementById('wencai-limit')?.value  || '300';
+    const wencaiLimit  = '0';
     const manualCodes  = document.getElementById('manual-codes')?.value  || '';
     const sectorQuery  = document.getElementById('sector-query')?.value  || '';
     const bridgeEnabled = !!document.getElementById('bridge-enabled')?.checked;
     const bridgeMode    = document.getElementById('bridge-mode')?.value || 'constrained';
     const bridgeQuery   = document.getElementById('bridge-query')?.value || '';
-    const bridgeLimit   = document.getElementById('bridge-limit')?.value || '300';
+    const bridgeLimit   = '0';
+    const runScopeLimit = getRunScopeLimit();
     const skillOrder   = getSkillOrder();
 
     const saved = {
       sourceType, pathType, skills, skillParams, skillOrder,
       wencaiQuery, wencaiLimit, manualCodes, wencaiMode: _wencaiMode, sectorQuery,
-      bridgeEnabled, bridgeMode, bridgeQuery, bridgeLimit,
+      bridgeEnabled, bridgeMode, bridgeQuery, bridgeLimit, runScopeLimit,
     };
     localStorage.setItem(PARAMS_STORE_ID, JSON.stringify(saved));
   } catch (_) {}
@@ -370,6 +397,9 @@ function restoreParams() {
 
     const pathRadio = document.querySelector(`input[name="path-type"][value="${saved.pathType}"]`);
     if (pathRadio) pathRadio.checked = true;
+
+    const runScope = document.getElementById('run-scope-limit');
+    if (runScope && saved.runScopeLimit != null) runScope.value = String(saved.runScopeLimit);
 
     applySkillOrder(saved.skillOrder);
 
@@ -394,7 +424,7 @@ function restoreParams() {
     const wq = document.getElementById('wencai-query');
     if (wq && saved.wencaiQuery) wq.value = saved.wencaiQuery;
     const wl = document.getElementById('wencai-limit');
-    if (wl && saved.wencaiLimit) wl.value = saved.wencaiLimit;
+    if (wl) wl.value = '0';
     const mc = document.getElementById('manual-codes');
     if (mc && saved.manualCodes) mc.value = saved.manualCodes;
     const sq = document.getElementById('sector-query');
@@ -406,7 +436,7 @@ function restoreParams() {
     const bq = document.getElementById('bridge-query');
     if (bq && saved.bridgeQuery) bq.value = saved.bridgeQuery;
     const bl = document.getElementById('bridge-limit');
-    if (bl && saved.bridgeLimit) bl.value = saved.bridgeLimit;
+    if (bl) bl.value = '0';
     updateBridgeConfig();
 
     if (saved.wencaiMode) setWencaiMode(saved.wencaiMode, true);
@@ -442,6 +472,8 @@ function resetParams() {
   if (srcRadio) { srcRadio.checked = true; srcRadio.dispatchEvent(new Event('change')); }
   const pathRadio = document.querySelector('input[name="path-type"][value="parallel_and"]');
   if (pathRadio) pathRadio.checked = true;
+  const runScope = document.getElementById('run-scope-limit');
+  if (runScope) runScope.value = '500';
   const wq = document.getElementById('wencai-query');
   if (wq) wq.value = '';
   const mc = document.getElementById('manual-codes');
@@ -453,7 +485,7 @@ function resetParams() {
   const bq = document.getElementById('bridge-query');
   if (bq) bq.value = '';
   const bl = document.getElementById('bridge-limit');
-  if (bl) bl.value = '300';
+  if (bl) bl.value = '0';
   updateBridgeConfig();
 }
 
@@ -477,6 +509,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   bindScanButton();
   bindConfirmSectorsButton();
   bindBridgeControls();
+  bindRunScopeControls();
   restoreParams();
   bindResetParams();
   bindRunButton();
@@ -491,6 +524,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderHistory();
   initMgmtCenter();
   checkHealth();
+  notifyStrategyStateChanged();
 });
 
 // ── 健康检查 ──────────────────────────────────────────────────────────
@@ -858,8 +892,8 @@ function updateBridgeConfig() {
   if (config) config.classList.toggle('hidden', !enabled);
   if (hint) {
     hint.textContent = mode === 'annotate'
-      ? '标注模式在最终命中后再问财，只增加 in_wencai 标签，不改变命中列表。'
-      : '约束模式在取数前执行问财，并与当前股票池取交集，可能减少后续分析范围。';
+      ? '标注模式在最终命中后再问财，只增加 in_wencai 标签，不改变命中列表；问财不再按档位截断。'
+      : '约束模式在取数前执行问财，并与当前股票池取交集，可能减少后续分析范围；问财不再按档位截断。';
   }
 }
 
@@ -868,28 +902,23 @@ function bindAllALimitWatch() {
   const inp = $('all-a-limit');
   if (!inp) return;
   function update() {
-    const v = parseInt(inp.value, 10) || 0;
     const warnEl     = $('all-a-warn');
     const warnText   = $('all-a-warn-text');
-    const confirmRow = $('all-a-confirm-row');
-    const cb         = $('all-a-confirm');
-    if (v >= 500) {
-      if (warnEl)   warnEl.classList.remove('hidden');
-      if (warnText) warnText.textContent = `扫描 ${v} 只股票，耗时可能超过 10 分钟。请勾选确认后才能运行。`;
-      if (confirmRow) confirmRow.classList.remove('hidden');
-    } else if (v >= 300) {
-      if (warnEl)   warnEl.classList.remove('hidden');
-      if (warnText) warnText.textContent = `扫描 ${v} 只股票，耗时可能较长（几分钟），请注意。`;
-      if (confirmRow) confirmRow.classList.add('hidden');
-      if (cb) cb.checked = false;
-    } else {
-      if (warnEl)   warnEl.classList.add('hidden');
-      if (confirmRow) confirmRow.classList.add('hidden');
-      if (cb) cb.checked = false;
-    }
+    if (warnEl)   warnEl.classList.remove('hidden');
+    if (warnText) warnText.textContent = '全 A 股按本地名单全量读取，不再截断；超过 300 / 500 / 2000 只只做提示，不拦截运行。';
+    inp.value = '0';
   }
   inp.addEventListener('change', update);
   update();
+}
+
+function bindRunScopeControls() {
+  const el = $('run-scope-limit');
+  if (!el) return;
+  el.addEventListener('change', () => {
+    saveParams();
+    notifyStrategyStateChanged();
+  });
 }
 
 // ── 问财模式切换 ──────────────────────────────────────────────────────
@@ -911,6 +940,7 @@ function setWencaiMode(mode, silent = false) {
   if (btnS)   btnS.classList.toggle('active',  mode === 'stock');
   if (btnSec) btnSec.classList.toggle('active', mode === 'sector');
   if (!silent) saveParams();
+  notifyStrategyStateChanged();
 }
 
 // ── P1-P6 预设 ────────────────────────────────────────────────────────
@@ -933,8 +963,14 @@ function applyPreset(key) {
   setWencaiMode('stock');
   // 填入
   const wq = $('wencai-query');
-  if (wq) { wq.value = query; wq.focus(); }
+  if (wq) {
+    wq.value = query;
+    wq.focus();
+    wq.dispatchEvent(new Event('input', { bubbles: true }));
+    wq.dispatchEvent(new Event('change', { bubbles: true }));
+  }
   saveParams();
+  notifyStrategyStateChanged();
 }
 
 // ── 收藏 CRUD ─────────────────────────────────────────────────────────
@@ -990,14 +1026,24 @@ window._deleteFav = function(key, idx) {
 
 function applyWencaiFav(query) {
   const wq = $('wencai-query');
-  if (wq) wq.value = query;
+  if (wq) {
+    wq.value = query;
+    wq.dispatchEvent(new Event('input', { bubbles: true }));
+    wq.dispatchEvent(new Event('change', { bubbles: true }));
+  }
   saveParams();
+  notifyStrategyStateChanged();
 }
 
 function applySectorFav(query) {
   const sq = $('sector-query');
-  if (sq) sq.value = query;
+  if (sq) {
+    sq.value = query;
+    sq.dispatchEvent(new Event('input', { bubbles: true }));
+    sq.dispatchEvent(new Event('change', { bubbles: true }));
+  }
   saveParams();
+  notifyStrategyStateChanged();
 }
 
 function bindFavButtons() {
@@ -1112,6 +1158,7 @@ function confirmSectors() {
   if (confirmRow) confirmRow.classList.add('hidden');
 
   saveParams();
+  notifyStrategyStateChanged();
 }
 
 function renderConfirmedChips() {
@@ -1134,6 +1181,8 @@ function renderConfirmedChips() {
 window.clearConfirmedSectors = function() {
   _confirmedSectors = [];
   renderConfirmedChips();
+  saveParams();
+  notifyStrategyStateChanged();
 };
 
 // ── 构建策略 JSON ─────────────────────────────────────────────────────
@@ -1149,7 +1198,7 @@ function buildStrategy() {
     source.codes = codes;
 
   } else if (sourceType === 'all_a') {
-    source.limit = parseInt($('all-a-limit').value, 10) || 300;
+    source.limit = 0;
 
   } else if (sourceType === 'wencai') {
     let query;
@@ -1160,8 +1209,10 @@ function buildStrategy() {
       }
       const phaseB = $('wencai-query')?.value.trim();
       if (!phaseB) throw new Error('板块联动：请输入 Phase B 问财个股选股语句');
-      const sectorStr = _confirmedSectors.join('、');
-      query = `属于${sectorStr}板块，且${phaseB}`;
+      const sectorClause = _confirmedSectors
+        .map(s => `${s}板块`)
+        .join('或');
+      query = `属于${sectorClause}，且${phaseB}`;
       // 附带 metadata 便于报告调试（source_resolver 会忽略这些额外字段）
       source.sector_linkage = {
         enabled:           true,
@@ -1175,7 +1226,7 @@ function buildStrategy() {
     }
 
     source.query = query;
-    source.limit = parseInt($('wencai-limit').value, 10) || 300;
+    source.limit = 0;
   }
 
   const skills = [];
@@ -1192,7 +1243,7 @@ function buildStrategy() {
     bridge = {
       mode: $('bridge-mode')?.value || 'constrained',
       wencai_query: bridgeQuery,
-      wencai_limit: parseInt($('bridge-limit')?.value || '300', 10) || 300,
+      wencai_limit: 0,
     };
   }
 
@@ -1218,6 +1269,7 @@ function buildStrategy() {
     source,
     skills,
     path_type: pathType,
+    run_scope_limit: getRunScopeLimit(),
     params: { skills: skillParams },
   };
   if (bridge) strategy.bridge = bridge;
@@ -1244,25 +1296,9 @@ function bindRunButton() {
     }
     saveParams();
 
-    // 全 A 扫描保护
-    if (strategy.source.type === 'all_a') {
-      const limit = strategy.source.limit || 0;
-      if (limit >= 500) {
-        const cb = $('all-a-confirm');
-        if (!cb || !cb.checked) {
-          showAlert('center-alerts', 'warn', `全 A 扫描 ${limit} 只需要勾选"确认继续"才能运行。`);
-          return;
-        }
-        strategy.confirm_large_scope = true;
-      } else if (limit >= 300) {
-        strategy.confirm_large_scope = true;
-      }
-    }
-
     clearResult();
-    stopPoll();
+    resetRunPollingState();
     logClear();
-    _lastEventCount = 0;
 
     setRunningState(true);
     const srcLabel = strategy.source.type === 'wencai' && strategy.source.sector_linkage
@@ -1306,20 +1342,33 @@ function bindRunButton() {
 
 // ── 中止运行按钮 ──────────────────────────────────────────────────────
 function bindAbortButton() {
-  const btn = $('btn-abort');
-  if (!btn) return;
-  btn.onclick = async () => {
-    btn.disabled = true;
-    logLine('WARN', '正在发送中止请求…');
-    try {
-      const res  = await fetch(API.abort, { method: 'POST' });
-      const data = await res.json();
-      logLine('WARN', data.message || '中止请求已发送');
-    } catch (e) {
-      logLine('ERROR', `中止请求失败: ${e.message}`);
-      btn.disabled = false;
-    }
-  };
+  ['btn-abort', 'btn-force-stop'].forEach(id => {
+    const btn = $(id);
+    if (!btn) return;
+    btn.onclick = ev => {
+      if (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+      }
+      forceStopRun();
+    };
+  });
+}
+
+async function forceStopRun() {
+  stopPoll();
+  setRunningState(false);
+  setStatus('aborting');
+  logLine('WARN', '已停止页面轮询，并向后端发送中止请求…');
+  try {
+    const res  = await fetch(API.abort, { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    logLine('WARN', data.message || '中止请求已发送');
+    setStatus(data.aborted ? 'aborting' : (data.status || 'idle'));
+  } catch (e) {
+    logLine('ERROR', `中止请求失败: ${e.message}`);
+    setStatus('error');
+  }
 }
 
 // ── 查看当前报告 ──────────────────────────────────────────────────────
@@ -1387,10 +1436,17 @@ function closeHelp() {
 
 // ── 轮询 /api/stream ──────────────────────────────────────────────────
 function startPoll() {
+  stopPoll();
   _pollTimer = setInterval(pollStream, 1500);
 }
 function stopPoll() {
   if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+}
+
+function resetRunPollingState() {
+  stopPoll();
+  _lastEventCount = 0;
+  _resultFetchedForRunId = null;
 }
 
 async function pollStream() {
@@ -1409,7 +1465,11 @@ async function pollStream() {
     if (terminal.includes(data.status)) {
       stopPoll();
       setRunningState(false);
-      await fetchResult();
+      const runKey = data.run_id || 'current';
+      if (_resultFetchedForRunId !== runKey) {
+        _resultFetchedForRunId = runKey;
+        await fetchResult();
+      }
     }
   } catch (e) {
     logLine('WARN', `轮询异常: ${e.message}`);
@@ -1433,6 +1493,8 @@ async function fetchResult() {
 
 // ── 渲染结果 ──────────────────────────────────────────────────────────
 function renderResult(r) {
+  renderRunFailureNotice(r);
+
   // 保存到历史 + 更新提示词库状态
   saveRunToHistory(r);
   fillPromptFromLastResult(r);
@@ -1449,6 +1511,41 @@ function renderResult(r) {
   renderGlobalExplanation(r);
   renderDataProvenance(r);
   renderBridgeResult(r);
+}
+
+function diagnoseRunFailure(r) {
+  if (!r || r.status !== 'error') return '';
+  const source = ((r.strategy_snapshot || {}).source) || ((r.strategy || {}).source) || {};
+  const scope = r.scope || {};
+  const sourceType = source.type || scope.source_type || ((r.source_info || {}).source_type) || '';
+  const scopeCount = Number((r.data_coverage || {}).scope_count ?? scope.scope_count ?? 0);
+  const rawError = r.error || scope.error || '';
+  const query = source.query || (r.source_info || {}).query_text || scope.query_text || '';
+
+  if (sourceType === 'wencai' && scopeCount === 0) {
+    const queryTip = query ? ` 当前问财语句：${String(query).slice(0, 90)}` : '';
+    return `问财来源没有形成股票池，后续技能没有输入。请先检查问财接口/session 是否正常，或换一句最基础问财语句验证接口。${queryTip}`;
+  }
+  if (String(rawError).includes('scope 为空')) {
+    return '股票池为空，后续技能没有输入。请先检查股票来源、问财语句或 Bridge 条件。';
+  }
+  return rawError ? `运行失败：${rawError}` : '运行失败：请查看下方运行日志和 run_report.json。';
+}
+
+function renderRunFailureNotice(r) {
+  const el = $('center-alerts');
+  if (!el) return;
+  el.querySelectorAll('.run-failure-alert').forEach(node => node.remove());
+  const message = diagnoseRunFailure(r);
+  if (!message) return;
+  const failureKey = `${r.run_id || ''}|${message}`;
+  if (el.dataset.runFailureKey === failureKey) return;
+  el.dataset.runFailureKey = failureKey;
+  const div = document.createElement('div');
+  div.className = 'alert alert-danger run-failure-alert';
+  div.innerHTML = `<span class="alert-icon">!</span><span>${esc(message)}</span>`;
+  el.appendChild(div);
+  logLine('ERROR', message);
 }
 
 function renderPrefetch(r) {
@@ -1521,6 +1618,7 @@ function renderReadiness(r) {
 function renderCoverage(r) {
   const dc = r.data_coverage || {};
   const sourceCfg = ((r.strategy || {}).source || {});
+  const runScope = r.run_scope || ((r.strategy_snapshot || {}).run_scope) || {};
   const sourceType = sourceCfg.type || ((r.scope || {}).source_type) || ((r.scope || {}).source) || 'source';
   const sourceLabel = sourceType === 'wencai'
     ? '问财来源快照'
@@ -1530,6 +1628,11 @@ function renderCoverage(r) {
         ? '手输来源快照'
         : '来源快照';
   const sourceCount = dc.scope_count ?? ((r.scope || {}).scope_count);
+  const sourceOriginalCount = runScope.original_scope_count ?? dc.source_original_count ?? sourceCount;
+  const runScopeLimit = Number(runScope.limit ?? dc.run_scope_limit ?? 0);
+  const runScopeSuffix = runScopeLimit > 0
+    ? `；运行规模 测试 ${runScopeLimit}，原始池 ${sourceOriginalCount ?? '-'} 只`
+    : '；运行规模 全量';
   const sourceLimit = Number(sourceCfg.limit || 0);
   const sourceHint = sourceType === 'wencai' && sourceLimit
     ? `问财实际返回 ${sourceCount ?? '-'} / 档位上限 ${sourceLimit}`
@@ -1546,7 +1649,7 @@ function renderCoverage(r) {
         <span class="storage-stars">★</span>
         <div class="storage-copy">
           <b>${esc(sourceLabel)} ${helpButton('source-snapshot')}</b>
-          <span>${esc(sourceHint)}</span>
+          <span>${esc(sourceHint + runScopeSuffix)}</span>
         </div>
         <span class="storage-count">${sourceCount ?? '-'}</span>
       </div>
@@ -1569,6 +1672,7 @@ function renderCoverage(r) {
     </div>
     <div class="coverage-grid">
       <div class="cov-item"><span class="cov-label">来源总数</span><span class="cov-value">${dc.scope_count ?? '-'}</span></div>
+      <div class="cov-item"><span class="cov-label">运行规模</span><span class="cov-value">${runScopeLimit > 0 ? `测试 ${runScopeLimit}` : '全量'}</span></div>
       <div class="cov-item"><span class="cov-label">本地K线可用</span><span class="cov-value text-green">${dc.cached_count ?? '-'}</span></div>
       <div class="cov-item"><span class="cov-label">缺K线数据</span><span class="cov-value text-yellow">${dc.missing_count ?? '-'}</span></div>
       <div class="cov-item"><span class="cov-label">取数失败</span><span class="cov-value text-red">${dc.failed_count ?? '-'}</span></div>
@@ -1728,11 +1832,13 @@ function setStatus(status) {
     idle:      ['badge-idle',      '待机'],
     pending:   ['badge-pending',   '排队中'],
     running:   ['badge-running',   '运行中'],
+    aborting:  ['badge-aborted',   '停止中'],
     completed: ['badge-completed', '完成'],
     error:     ['badge-error',     '错误'],
     aborted:   ['badge-aborted',   '已中止'],
   };
   const [cls, text] = map[status] || ['badge-idle', status];
+  _currentRunStatus = status || 'idle';
   el.className   = `badge ${cls}`;
   el.textContent = text;
 }
@@ -1740,14 +1846,32 @@ function setStatus(status) {
 function setRunningState(isRunning) {
   const runBtn   = $('btn-run');
   const abortBtn = $('btn-abort');
+  const forceBtn = $('btn-force-stop');
   const spinner  = $('run-spinner');
+  document.body.classList.toggle('v6op-running', !!isRunning);
   if (runBtn)   runBtn.disabled   = isRunning;
   if (abortBtn) abortBtn.disabled = !isRunning;
+  if (forceBtn) {
+    forceBtn.disabled = false;
+    forceBtn.textContent = isRunning ? '强制停止' : '停止刷新';
+  }
   if (spinner) {
     if (isRunning) spinner.classList.remove('hidden');
     else           spinner.classList.add('hidden');
   }
-  setStatus(isRunning ? 'pending' : 'idle');
+  if (isRunning) {
+    const logDetails = $('log-details');
+    if (logDetails) logDetails.open = true;
+    const centerPanel = document.querySelector('.strategy-center-panel');
+    if (centerPanel) centerPanel.scrollTop = 0;
+    const logBox = $('log-box');
+    if (logBox) logBox.scrollTop = logBox.scrollHeight;
+  }
+  if (isRunning) {
+    setStatus('pending');
+  } else if (['pending', 'running', 'aborting'].includes(_currentRunStatus)) {
+    setStatus('idle');
+  }
 }
 
 function logLine(level, msg) {
@@ -1775,6 +1899,11 @@ function clearResult() {
   $('warnings-box').innerHTML  = '';
   $('producer-box').innerHTML  = '';
   $('report-links').innerHTML  = '';
+  const alerts = $('center-alerts');
+  if (alerts) {
+    alerts.innerHTML = '';
+    delete alerts.dataset.runFailureKey;
+  }
   const explSection = $('global-explanation-section');
   if (explSection) explSection.classList.add('hidden');
   const provSection = $('data-provenance-section');
@@ -2241,8 +2370,9 @@ function _applyRestoredParams(params) {
     }
   }
   if (src.query)  { const el = $('wencai-query'); if (el) el.value = src.query; }
-  if (src.limit)  { const el = $('wencai-limit'); if (el) el.value = String(src.limit);
-                    const al = $('all-a-limit');   if (al) al.value = String(src.limit); }
+  { const el = $('wencai-limit'); if (el) el.value = '0';
+    const al = $('all-a-limit');   if (al) al.value = '0'; }
+  { const rs = $('run-scope-limit'); if (rs) rs.value = String(params.run_scope_limit ?? 500); }
   if (Array.isArray(src.codes)) {
     const el = $('manual-codes');
     if (el) el.value = src.codes.join(', ');
@@ -2258,10 +2388,7 @@ function _applyRestoredParams(params) {
     const bq = $('bridge-query');
     if (bq) bq.value = bridge.wencai_query;
   }
-  if (bridge.wencai_limit) {
-    const bl = $('bridge-limit');
-    if (bl) bl.value = String(bridge.wencai_limit);
-  }
+  { const bl = $('bridge-limit'); if (bl) bl.value = '0'; }
   updateBridgeConfig();
   saveParams();
 }

@@ -77,14 +77,20 @@ def _run_execution_background(strategy: dict) -> None:
         execution_engine._log_sink = _push_event
 
         with _state_lock:
-            _run_state["status"] = "running"
+            if _run_state.get("abort_requested"):
+                _run_state["status"] = "aborting"
+            else:
+                _run_state["status"] = "running"
             current_run_id = _run_state["run_id"]
         _push_event("INFO", f"执行开始 run_id={current_run_id}")
 
         result = execution_engine.execute(strategy)
 
         with _state_lock:
-            _run_state["status"] = result.get("status", "completed")
+            if _run_state.get("abort_requested"):
+                _run_state["status"] = "aborted"
+            else:
+                _run_state["status"] = result.get("status", "completed")
             _run_state["completed_at"] = iso_cst()
             _run_state["final_hit_count"] = result.get("final_hit_count", 0)
             final_status = _run_state["status"]
@@ -418,23 +424,8 @@ class V6OPHandler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": "策略 JSON 不能为空"})
                 return
 
-            # ── 全 A 扫描保护（API 层，不能只靠前端）──────────────────
-            src = strategy.get("source", {})
-            if src.get("type") == "all_a":
-                all_a_limit = int(src.get("limit", 50))
-                if all_a_limit >= 500 and not strategy.get("confirm_large_scope"):
-                    self._send_json(400, {
-                        "error": (
-                            f"全 A 扫描 {all_a_limit} 只超过 500 只上限，需要用户确认。"
-                            "请在界面勾选确认框后重试。"
-                        ),
-                        "require_confirmation": True,
-                        "scope_size": all_a_limit,
-                    })
-                    return
-
             with _state_lock:
-                if _run_state["status"] == "running":
+                if _run_state["status"] in ("pending", "running", "aborting"):
                     self._send_json(409, {
                         "error": "已有执行任务正在运行",
                         "run_id": _run_state["run_id"],
@@ -478,13 +469,15 @@ class V6OPHandler(BaseHTTPRequestHandler):
         elif path == "/api/abort":
             with _state_lock:
                 current_status = _run_state["status"]
-                if current_status not in ("running", "pending"):
+                if current_status not in ("running", "pending", "aborting"):
                     self._send_json(200, {
                         "message": f"当前状态 {current_status}，无正在运行的任务",
                         "aborted": False,
+                        "status": current_status,
                     })
                     return
                 _run_state["abort_requested"] = True
+                _run_state["status"] = "aborting"
 
             # 通知 execution_engine 设置中止标志
             try:
@@ -495,8 +488,9 @@ class V6OPHandler(BaseHTTPRequestHandler):
 
             _push_event("WARN", "收到中止请求，将在下一步骤边界停止")
             self._send_json(200, {
-                "message": "中止请求已发送，执行将在下一个步骤边界停止",
+                "message": "中止请求已发送；页面可先停止轮询，后端将在下一步骤边界停止",
                 "aborted": True,
+                "status": "aborting",
             })
 
         elif path == "/api/scan_sectors":

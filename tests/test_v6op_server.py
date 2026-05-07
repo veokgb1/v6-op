@@ -364,11 +364,11 @@ class TestV6OP006ApiResult:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# TestV6OP007AllAProtection — V6OP-007 全 A 扫描 API 层保护
+# TestV6OP007AllAProtection — 全 A 扫描不再按档位拦截
 # ══════════════════════════════════════════════════════════════════════
 
 class TestV6OP007AllAProtection:
-    """V6OP-007：全 A 扫描 API 层保护测试。"""
+    """全 A 扫描取消数量拦截，仅保留前端提示。"""
 
     def _make_idle_state(self):
         return {
@@ -390,9 +390,9 @@ class TestV6OP007AllAProtection:
         handler.path = "/api/run"
         return handler, sent
 
-    def test_all_a_500_without_confirm_rejected(self, monkeypatch):
-        """all_a limit=500 且无 confirm_large_scope 时，API 应返回 400。"""
-        import v6op_server
+    def test_all_a_500_without_confirm_allowed(self, monkeypatch):
+        """all_a limit=500 且无 confirm_large_scope 时，API 也应接受。"""
+        import v6op_server, threading
         strategy = {
             "source": {"type": "all_a", "limit": 500},
             "skills": ["kline"],
@@ -401,16 +401,16 @@ class TestV6OP007AllAProtection:
         }
         body = json.dumps(strategy).encode("utf-8")
         handler, sent = self._make_post_handler(v6op_server, body)
+        monkeypatch.setattr(v6op_server, "_run_state", self._make_idle_state())
+        monkeypatch.setattr(threading.Thread, "start", lambda self: None)
         handler.do_POST()
         assert sent, "未调用 _send_json"
-        code, data = sent[0]
-        assert code == 400, f"期望 400，实际 {code}: {data}"
-        assert data.get("require_confirmation") is True, "应返回 require_confirmation: true"
-        assert "500" in data.get("error", ""), "错误消息应包含只数"
+        code, _ = sent[0]
+        assert code == 202, f"all_a limit=500 不应再被确认拦截，实际 {code}"
 
-    def test_all_a_1000_without_confirm_rejected(self, monkeypatch):
-        """all_a limit=1000 且无 confirm_large_scope 时，API 应返回 400。"""
-        import v6op_server
+    def test_all_a_1000_without_confirm_allowed(self, monkeypatch):
+        """all_a limit=1000 且无 confirm_large_scope 时，API 也应接受。"""
+        import v6op_server, threading
         strategy = {
             "source": {"type": "all_a", "limit": 1000},
             "skills": ["kline"],
@@ -419,11 +419,12 @@ class TestV6OP007AllAProtection:
         }
         body = json.dumps(strategy).encode("utf-8")
         handler, sent = self._make_post_handler(v6op_server, body)
+        monkeypatch.setattr(v6op_server, "_run_state", self._make_idle_state())
+        monkeypatch.setattr(threading.Thread, "start", lambda self: None)
         handler.do_POST()
         assert sent
-        code, data = sent[0]
-        assert code == 400
-        assert data.get("require_confirmation") is True
+        code, _ = sent[0]
+        assert code == 202
 
     def test_all_a_300_no_confirm_required(self, monkeypatch):
         """all_a limit=300 无需确认，API 应接受（202）。"""

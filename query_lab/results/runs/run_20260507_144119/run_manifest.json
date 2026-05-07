@@ -1,0 +1,20 @@
+{
+  "run_id": "run_20260507_144119",
+  "status": "completed",
+  "completed": true,
+  "updated_at": "2026-05-07T14:41:47.513876",
+  "run_dir": "F:\\v.6\\v6-op\\query_lab\\results\\runs\\run_20260507_144119",
+  "summary": {
+    "total": 5,
+    "stable": 4,
+    "unstable": 0,
+    "risky": 0,
+    "failed": 1,
+    "forbidden": 0,
+    "invalid_query": 0,
+    "pending": 0,
+    "failure_types": {
+      "empty_result": 1
+    }
+  }
+}

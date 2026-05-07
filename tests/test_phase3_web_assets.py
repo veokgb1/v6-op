@@ -327,14 +327,37 @@ class TestV6OP007WebAssets:
         assert 'value="all_a"' in html, "index.html 缺少 all_a 来源选项"
         assert 'value="wencai"' in html, "index.html 缺少 wencai 来源选项"
 
-    # ── 问财限制输入 ──────────────────────────────────────────────────
+    # ── 来源数量限制已取消 ────────────────────────────────────────────
 
-    def test_index_wencai_panel_has_limit_input(self, html):
-        assert "wencai-limit" in html, "index.html wencai 面板缺少 limit 输入框"
+    def test_index_wencai_limit_defaults_to_unlimited(self, html):
+        assert 'id="wencai-limit"' in html, "index.html 需要保留 hidden wencai-limit 兼容参数恢复"
+        assert 'id="wencai-limit" value="0"' in html, "wencai-limit 应默认 0（不限档位）"
 
-    def test_app_js_sends_wencai_limit(self, js):
-        assert "wencai-limit" in js, "app.js buildStrategy 未读取 wencai-limit 输入"
-        assert "source.limit" in js, "app.js 未向 source 对象写入 limit"
+    def test_app_js_sends_unlimited_source_limit(self, js):
+        assert "source.limit = 0" in js, "app.js 应向来源发送 limit=0 表示不限档位"
+
+    def test_index_has_pipeline_run_scope_control(self, html):
+        assert 'id="run-scope-limit"' in html, "index.html 缺少 pipeline 运行规模控件"
+        assert 'value="500" selected' in html, "运行规模应默认测试 500"
+        assert 'value="2000"' in html, "运行规模缺少测试 2000"
+
+    def test_app_js_sends_pipeline_run_scope_limit(self, js):
+        assert "run_scope_limit" in js, "app.js 应发送顶层 run_scope_limit"
+        assert "getRunScopeLimit" in js, "app.js 应集中读取运行规模"
+
+    def test_app_js_explains_empty_wencai_scope(self, js):
+        assert "diagnoseRunFailure" in js, "app.js 应把后端空股票池错误翻译成可操作提示"
+        assert "问财来源没有形成股票池" in js, "app.js 应明确提示问财空结果"
+
+    def test_app_js_prevents_poll_timer_stack(self, js):
+        assert "resetRunPollingState" in js, "app.js 应集中重置轮询游标和定时器"
+        assert "function startPoll()" in js and "stopPoll();" in js, \
+            "startPoll 应先 stopPoll，避免多个轮询定时器叠加刷屏"
+
+    def test_app_js_preserves_terminal_status_badge(self, js):
+        assert "_currentRunStatus" in js, "app.js 应记录当前运行状态"
+        assert "['pending', 'running', 'aborting'].includes(_currentRunStatus)" in js, \
+            "setRunningState(false) 不应覆盖 completed/error/aborted 终态"
 
     def test_index_has_bridge_controls(self, html):
         assert "bridge-enabled" in html, "index.html 缺少 Bridge 启用控件"
@@ -351,15 +374,12 @@ class TestV6OP007WebAssets:
     def test_index_all_a_has_warn_element(self, html):
         assert "all-a-warn" in html, "index.html all_a 面板缺少风险提示元素"
 
-    def test_index_all_a_has_confirm_checkbox(self, html):
-        assert "all-a-confirm" in html, "index.html all_a 面板缺少确认勾选框"
-
     def test_app_js_has_bind_all_a_limit_watch(self, js):
         assert "bindAllALimitWatch" in js, "app.js 缺少 bindAllALimitWatch 函数"
 
-    def test_app_js_checks_confirm_before_run(self, js):
-        assert "all-a-confirm" in js, "app.js run 按钮未检查 all_a 确认框"
-        assert "confirm_large_scope" in js, "app.js 未向 API 发送 confirm_large_scope"
+    def test_app_js_does_not_block_all_a_by_confirm(self, js):
+        assert "confirm_large_scope" not in js, "app.js 不应再用 confirm_large_scope 拦截全 A 股运行"
+        assert "all-a-confirm" not in js, "app.js 不应再检查全 A 股确认框"
 
     # ── simple_hybrid 标签修正 ────────────────────────────────────────
 
@@ -531,8 +551,8 @@ class TestV6OP029WencaiSectorFavorites:
         assert "confirmSectors" in js, "app.js 缺少 confirmSectors 函数"
 
     def test_app_js_sector_builds_composite_query(self, js):
-        assert "属于" in js and "板块，且" in js, \
-            "app.js buildStrategy 未构建 '属于{sectors}板块，且{phaseB}' 合成查询"
+        assert "sectorClause" in js and ".join('或')" in js and "板块" in js, \
+            "app.js buildStrategy 未用稳定的 '板块或板块' 形式构建板块联动查询"
 
     def test_app_js_sector_linkage_metadata(self, js):
         assert "sector_linkage" in js, "app.js 未附带 sector_linkage metadata"
@@ -571,8 +591,13 @@ class TestV6OP029WencaiSectorFavorites:
     def test_html_has_btn_abort(self, html):
         assert 'id="btn-abort"' in html, "index.html 缺少 id=btn-abort 按钮"
 
+    def test_strategy_html_has_force_stop_button(self):
+        html = (_ROOT / "web" / "strategy.html").read_text(encoding="utf-8")
+        assert 'id="btn-force-stop"' in html, "strategy.html 日志区缺少随时可见的停止按钮"
+
     def test_app_js_bind_abort_button(self, js):
         assert "bindAbortButton" in js, "app.js 缺少 bindAbortButton 函数"
+        assert "forceStopRun" in js, "app.js 缺少前端强制停止轮询逻辑"
 
     # ── 查看报告 / 清空日志 ───────────────────────────────────────────
 
@@ -786,6 +811,10 @@ class TestStrategyHtmlContent:
     def test_has_source_radios(self, html):
         assert 'name="source-type"' in html, "strategy.html 缺少 source-type 来源选择"
 
+    def test_has_run_scope_control(self, html):
+        assert 'id="run-scope-limit"' in html, "strategy.html 缺少运行规模控件"
+        assert "运行规模" in html, "strategy.html 应明确标注运行规模"
+
     def test_has_skill_list(self, html):
         assert 'id="skill-list"' in html, "strategy.html 缺少 id=skill-list"
 
@@ -803,6 +832,12 @@ class TestStrategyHtmlContent:
 
     def test_has_log_box(self, html):
         assert 'id="log-box"' in html, "strategy.html 缺少 id=log-box"
+
+    def test_running_layout_collapses_preview_for_large_log(self, html):
+        assert "body.v6op-running #query-preview-section .query-preview-label" in html, \
+            "strategy.html 运行态应折叠预览区，给日志让位"
+        assert "calc(100vh" in html and "#log-box" in html, \
+            "strategy.html 运行态日志框应按视口高度放大"
 
     def test_has_hit_list(self, html):
         assert 'id="hit-list"' in html, "strategy.html 缺少 id=hit-list"

@@ -63,6 +63,78 @@
       color: var(--muted);
       margin-bottom: 4px;
     }
+    .strategy-center-panel {
+      min-height: 0;
+    }
+    .strategy-center-panel #log-details[open] {
+      display: flex;
+      flex-direction: column;
+    }
+    .strategy-center-panel #preview-skills,
+    .strategy-center-panel #preview-path {
+      min-height: 46px;
+      max-height: 70px;
+      overflow: hidden;
+    }
+    .strategy-center-panel #log-box {
+      max-height: 42vh;
+    }
+    body.v6op-running .strategy-center-panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    body.v6op-running #query-preview-section {
+      flex: 0 0 auto;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: rgba(30, 33, 48, 0.72);
+      padding: 6px 8px;
+      margin-bottom: 6px;
+    }
+    body.v6op-running #query-preview-section .section-title {
+      margin: 0 0 4px;
+      font-size: 11px;
+    }
+    body.v6op-running #query-preview-section .query-preview-label {
+      display: none;
+    }
+    body.v6op-running .query-preview-box {
+      display: none;
+    }
+    body.v6op-running #preview-source {
+      display: block;
+      min-height: 0;
+      max-height: 26px;
+      padding: 0;
+      margin: 0;
+      border: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      background: transparent;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    body.v6op-running #preview-skills,
+    body.v6op-running #preview-path {
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    body.v6op-running #log-details[open] {
+      flex: 1 1 auto;
+      min-height: 0;
+      margin-top: 4px !important;
+    }
+    body.v6op-running #log-box {
+      flex: 1 1 auto;
+      min-height: calc(100vh - var(--header-h, 44px) - var(--action-bar-h, 52px) - 185px);
+      max-height: none;
+      overscroll-behavior: contain;
+    }
+    body.v6op-running .post-run-section {
+      display: none;
+    }
 
     /* ── 启动预览 Modal ──────────────────────────────────────── */
     .run-preview-overlay {
@@ -126,7 +198,7 @@
     }
   </style>
 </head>
-<body>
+<body class="strategy-page">
 
 <!-- ── 多页面导航 ──────────────────────────────────────────────── -->
 <nav class="v6-nav" id="v6-nav"></nav>
@@ -140,7 +212,7 @@
     <div class="section-title">股票来源</div>
     <div class="radio-group">
       <label><input type="radio" name="source-type" value="manual" checked /> 手动输入代码</label>
-      <label><input type="radio" name="source-type" value="all_a" /> 全 A 股（limit）</label>
+      <label><input type="radio" name="source-type" value="all_a" /> 全 A 股</label>
       <label><input type="radio" name="source-type" value="wencai" /> 问财选股</label>
     </div>
 
@@ -153,27 +225,11 @@
 
     <!-- 全 A 股 -->
     <div id="src-all-a" class="mt8 hidden">
-      <div class="form-row">
-        <label for="all-a-limit">扫描档位</label>
-        <select id="all-a-limit">
-          <option value="100">SAFE 100</option>
-          <option value="300" selected>STABLE 300</option>
-          <option value="500">TEST 500</option>
-          <option value="1000">PRO 1000</option>
-          <option value="2000">PRO 2000</option>
-          <option value="5000">PRO 5000（本地名单截取上限）</option>
-        </select>
-      </div>
-      <div class="form-hint" id="all-a-limit-hint">默认 STABLE 300；超过 500 只需确认</div>
-      <div id="all-a-warn" class="alert alert-warn mt4 hidden">
+      <input type="hidden" id="all-a-limit" value="0" />
+      <div class="form-hint" id="all-a-limit-hint">全量读取本地 A 股名单，不按档位截断。</div>
+      <div id="all-a-warn" class="alert alert-warn mt4">
         <span class="alert-icon">⚠️</span>
-        <span id="all-a-warn-text">扫描只数较多，耗时可能较长。</span>
-      </div>
-      <div id="all-a-confirm-row" class="mt4 hidden">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="all-a-confirm" />
-          <span style="font-size:12px">我知道这会运行较长时间，确认继续</span>
-        </label>
+        <span id="all-a-warn-text">全 A 股通常会超过 300 / 500 / 2000 只；这里只提示，不再拦截运行。</span>
       </div>
     </div>
 
@@ -228,17 +284,9 @@
         <input type="text" id="wencai-query" placeholder="例如：净利润增速大于 20%" />
         <div class="form-row mt4" style="gap:4px;flex-wrap:wrap;align-items:center">
           <button id="btn-save-wencai-fav" class="btn btn-sm" type="button">☆ 收藏</button>
-          <label for="wencai-limit" style="margin-left:4px">档位</label>
-          <select id="wencai-limit">
-            <option value="100">SAFE 100</option>
-            <option value="300" selected>STABLE 300</option>
-            <option value="500">TEST 500</option>
-            <option value="1000">PRO 1000</option>
-            <option value="2000">PRO 2000</option>
-            <option value="5000">PRO 5000（最多接收问财返回结果）</option>
-          </select>
+          <input type="hidden" id="wencai-limit" value="0" />
         </div>
-        <div id="wencai-limit-hint" class="form-hint">档位说明：SAFE 100 ~ PRO 5000</div>
+        <div id="wencai-limit-hint" class="form-hint">问财默认不限档位，自动翻页直到没有新增股票；实际返回多少以问财接口为准。</div>
       </div>
     </div><!-- /src-wencai -->
 
@@ -259,14 +307,7 @@
         </div>
         <input type="text" id="bridge-query" class="mt4"
           placeholder="例如：属于人工智能概念，或近5日主力资金净流入" />
-        <div class="form-row mt4" style="gap:4px;flex-wrap:wrap;align-items:center">
-          <label for="bridge-limit">问财上限</label>
-          <select id="bridge-limit">
-            <option value="100">100</option><option value="300" selected>300</option>
-            <option value="500">500</option><option value="1000">1000</option>
-            <option value="2000">2000</option><option value="5000">5000</option>
-          </select>
-        </div>
+        <input type="hidden" id="bridge-limit" value="0" />
         <div class="form-hint" id="bridge-hint">
           约束模式：问财结果与股票池取交集；标注模式：命中列表加标签，不过滤。
         </div>
@@ -287,12 +328,12 @@
   </section>
 
   <!-- ══ 中间：策略预览 + 日志 + 运行状态 ══════════════════════ -->
-  <section class="strategy-panel" aria-label="策略预览">
+  <section class="strategy-panel strategy-center-panel" aria-label="策略预览">
 
     <div id="center-alerts" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
 
     <!-- 最终 Query 预览 -->
-    <div>
+    <div id="query-preview-section">
       <div class="section-title section-title-help">
         <span>最终 Query 预览</span>
         <button class="btn btn-sm" id="btn-refresh-preview" type="button" style="font-size:10px">↺ 刷新</button>
@@ -309,8 +350,9 @@
     <details id="log-details" style="margin-top:12px" open>
       <summary class="section-title" style="cursor:pointer;user-select:none">
         运行日志 <span id="status-badge" class="badge badge-idle" style="margin-left:6px">待机</span>
+        <button id="btn-force-stop" class="btn btn-danger btn-sm" type="button" style="float:right;margin-top:-3px">停止</button>
       </summary>
-      <div id="log-box" class="log-box" style="margin-top:6px">
+      <div id="log-box" class="log-box" style="margin-top:6px" aria-live="polite">
         <div class="log-line">
           <span class="log-ts">—</span>
           <span class="log-INFO">等待启动…</span>
@@ -319,14 +361,14 @@
     </details>
 
     <!-- 数据状态（折叠） -->
-    <details style="margin-top:8px">
+    <details class="post-run-section" style="margin-top:8px">
       <summary class="section-title" style="cursor:pointer;user-select:none">数据就绪状态</summary>
       <div id="readiness-box" style="margin-top:6px">
         <span class="text-muted" style="font-size:11px">运行后显示</span>
       </div>
     </details>
 
-    <details style="margin-top:8px">
+    <details class="post-run-section" style="margin-top:8px">
       <summary class="section-title" style="cursor:pointer;user-select:none">
         数据标记
         <button class="info-btn" type="button" data-help="data-markers" aria-label="数据标记说明">i</button>
@@ -336,7 +378,7 @@
       </div>
     </details>
 
-    <details style="margin-top:8px">
+    <details class="post-run-section" style="margin-top:8px">
       <summary class="section-title" style="cursor:pointer;user-select:none">
         本轮取数记录
         <button class="info-btn" type="button" data-help="fetch-record" aria-label="本轮取数记录说明">i</button>
@@ -346,14 +388,14 @@
       </div>
     </details>
 
-    <details style="margin-top:8px">
+    <details class="post-run-section" style="margin-top:8px">
       <summary class="section-title" style="cursor:pointer;user-select:none">警告 / 标注</summary>
       <div id="warnings-box" class="warnings-list" style="margin-top:6px">
         <span class="text-muted" style="font-size:11px">运行后显示</span>
       </div>
     </details>
 
-    <details style="margin-top:8px">
+    <details class="post-run-section" style="margin-top:8px">
       <summary class="section-title" style="cursor:pointer;user-select:none">技能运行摘要</summary>
       <div id="producer-box" style="margin-top:6px">
         <span class="text-muted" style="font-size:11px">运行后显示</span>
@@ -389,6 +431,15 @@
           <input type="radio" name="path-type" value="simple_hybrid" />
           简单混合（前2并线+顺序过滤）<span class="tag tag-weak" style="font-size:10px">simple_hybrid</span>
         </label>
+      </div>
+      <div class="mt8">
+        <label for="run-scope-limit" class="query-preview-label">运行规模</label>
+        <select id="run-scope-limit">
+          <option value="500" selected>测试 500</option>
+          <option value="2000">测试 2000</option>
+          <option value="0">全量</option>
+        </select>
+        <div class="form-hint">运行规模是本轮 pipeline 闸门：来源与 Bridge 先完整形成股票池，再限制进入后续所有技能和执行路径的股票数量。</div>
       </div>
     </div>
 

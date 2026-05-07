@@ -1,0 +1,7 @@
+skill_id,skill_key,skill_name_zh,domain,input_type,output_type,adapter,status
+wencai_astock,astock,问财选A股,wencai_query,中文Query,股票列表,wencai_astock_adapter,active
+wencai_sector,sector,问财选板块,wencai_query,中文Query,板块列表,wencai_sector_adapter,active
+daily_kline,daily_kline,日线,market_data,股票代码,K线序列,daily_kline_adapter,pending
+quote,quote,行情,market_data,股票代码,行情快照,quote_adapter,pending
+technical_indicator,technical_indicator,技术指标,technical_analysis,股票代码,指标序列,pending_adapter,pending
+capital_flow,capital_flow,资金,capital_flow,股票代码,资金快照,pending_adapter,pending

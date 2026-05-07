@@ -72,6 +72,13 @@ class TestWencaiSource:
         from wencai_source import run, _load_env
         assert callable(run)
 
+    def test_normalize_code_handles_plain_a_share_markets(self):
+        from wencai_source import _normalize_code
+        assert _normalize_code("600519") == "600519.SH"
+        assert _normalize_code("000001") == "000001.SZ"
+        assert _normalize_code("300750") == "300750.SZ"
+        assert _normalize_code("430047") == "430047.BJ"
+
     def test_key_missing_returns_blocked(self, monkeypatch):
         monkeypatch.delenv("IWENCAI_API_KEY", raising=False)
         from wencai_source import run
@@ -117,6 +124,52 @@ class TestWencaiSource:
         assert len(codes) == 250
         assert [c["page"] for c in calls] == [1, 2, 3]
         assert all(c["perpage"] == 100 for c in calls)
+
+
+# ════════════════════════════════════════════════════════════════════
+#  2b. SectorScanSource 测试（离线）
+# ════════════════════════════════════════════════════════════════════
+
+class TestSectorScanSource:
+    def test_extract_sector_names_handles_index_short_name(self):
+        import sector_scan_source as ss
+        rows = [
+            {"指数代码": "881281.TI", "指数简称": "电池"},
+            {"指数代码": "881271.TI", "指数简称": "IT服务"},
+        ]
+        assert ss._extract_sector_names(rows, 2) == ["电池", "IT服务"]
+
+    def test_rows_from_dict_dataframe_like_value(self):
+        import sector_scan_source as ss
+
+        class FakeFrame:
+            def to_dict(self, orient):
+                assert orient == "records"
+                return [{"指数简称": "电力"}]
+
+        assert ss._rows_from_pywencai_result({"title_content": FakeFrame()}) == [
+            {"指数简称": "电力"}
+        ]
+
+    def test_scan_falls_back_to_zhishu_when_sector_has_no_names(self, monkeypatch):
+        import types
+        import sector_scan_source as ss
+
+        calls = []
+
+        def fake_get(query, query_type, perpage, page):
+            calls.append(query_type)
+            if query_type == "sector":
+                return {"title_content": [{"uid": "x", "jumpUrl": "https://example.com"}]}
+            return [{"指数简称": "电池"}, {"指数简称": "IT服务"}]
+
+        monkeypatch.setattr(ss, "_load_env", lambda: {"IWENCAI_API_KEY": "fake"})
+        monkeypatch.setitem(sys.modules, "pywencai", types.SimpleNamespace(get=fake_get))
+
+        result = ss.scan("今日主力资金净流入排名前十的行业板块", top_n=2)
+        assert result["error"] is None
+        assert result["sectors"] == ["电池", "IT服务"]
+        assert result["query_types_tried"] == ["sector", "zhishu"]
 
 
 # ════════════════════════════════════════════════════════════════════

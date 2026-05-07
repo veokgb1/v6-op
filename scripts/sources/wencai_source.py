@@ -80,8 +80,10 @@ def _normalize_code(raw: str) -> str | None:
     raw = raw.strip()
     if re.match(r"^\d{6}$", raw):
         prefix = raw[:3]
-        if prefix in ("600", "601", "603", "605", "688", "900"):
+        if prefix in ("600", "601", "603", "605", "688", "689", "900"):
             return f"{raw}.SH"
+        if prefix.startswith("8") or prefix.startswith("4"):
+            return f"{raw}.BJ"
         return f"{raw}.SZ"
     m = _CODE_FULL_RE.match(raw)
     if m:
@@ -136,9 +138,12 @@ def _query_wencai(query: str, api_key: str, limit: int) -> tuple[list[str], str]
         return [], "blocked"
 
     try:
-        _log("INFO", f"问财查询: {query[:80]}  limit={limit}")
-        perpage = min(max(int(limit), 1), 100)
-        max_pages = max(1, (int(limit) + perpage - 1) // perpage)
+        limit = int(limit or 0)
+        unlimited = limit <= 0
+        _log("INFO", f"问财查询: {query[:80]}  limit={'unlimited' if unlimited else limit}")
+        perpage = 100 if unlimited else min(max(limit, 1), 100)
+        # 不设用户档位上限时仍保留接口安全页数，避免第三方接口异常导致死循环。
+        max_pages = 100 if unlimited else max(1, (limit + perpage - 1) // perpage)
         all_rows: list[dict] = []
         codes: list[str] = []
         seen: set[str] = set()
@@ -153,8 +158,8 @@ def _query_wencai(query: str, api_key: str, limit: int) -> tuple[list[str], str]
 
             if result is None:
                 if page == 1:
-                    _log("WARN", "问财返回 None，视为空结果")
-                    return [], "empty_result"
+                    _log("WARN", "问财返回 None，未取得可解析数据")
+                    return [], "api_error"
                 break
 
             rows: list[dict] = []
@@ -177,14 +182,15 @@ def _query_wencai(query: str, api_key: str, limit: int) -> tuple[list[str], str]
                 if code not in seen:
                     seen.add(code)
                     codes.append(code)
-                    if len(codes) >= limit:
+                    if not unlimited and len(codes) >= limit:
                         break
 
             _log("INFO", f"问财第 {page} 页返回 {len(rows)} 行，累计 {len(codes)} 只")
-            if len(codes) >= limit or len(codes) == before:
+            if (not unlimited and len(codes) >= limit) or len(codes) == before:
                 break
 
-        codes = codes[:limit]
+        if not unlimited:
+            codes = codes[:limit]
         _log("INFO", f"问财累计返回 {len(all_rows)} 行，提取到 {len(codes)} 只代码")
 
         if not codes:
@@ -220,9 +226,15 @@ def _make_scope_json(
     # api_called: 是否真正尝试调用了 pywencai 接口
     api_called = status not in ("key_missing", "blocked")
     # count_note: 区分三种返回量级
-    near_limit = count >= max(1, int(limit * 0.95))
-    if count == 0:
+    limit = int(limit or 0)
+    unlimited = limit <= 0
+    near_limit = (not unlimited) and count >= max(1, int(limit * 0.95))
+    if count == 0 and status == "api_error":
+        count_note = "问财接口未返回可解析数据；可能是语句不被当前问财解析、接口临时异常或 session 状态异常；可先用基础语句验证接口"
+    elif count == 0:
         count_note = "问财返回 0 只股票，条件可能过严、查询不匹配或授权未生效"
+    elif unlimited:
+        count_note = f"问财返回 {count} 只股票（不限档位）"
     elif near_limit:
         count_note = f"接近上限（{count}/{limit}），实际符合股票可能更多，可尝试提高 limit"
     elif count < 50:
@@ -250,9 +262,9 @@ def _make_scope_json(
             "key_missing":  "IWENCAI_API_KEY 未配置，请检查 .env 文件",
             "blocked":      "pywencai 库未安装，无法调用问财 API",
             "auth_failed":  "问财 API 认证失败（401 Unauthorized），请检查 API Key 是否有效",
-            "empty_result": "问财查询无结果（条件过严或市场无符合股票）",
+            "empty_result": "问财查询无结果（问财明确返回空列表）",
             "network_error":"问财网络连接失败，请检查网络或稍后重试",
-            "api_error":    "问财 API 返回错误，请查看日志详情",
+            "api_error":    "问财接口未返回可解析数据：可能是该问财语句不被当前接口解析、接口临时异常或 session 状态异常；请先用基础语句验证，再逐步叠加条件",
         }.get(status, "问财接口异常，返回空列表"),
     }
 
@@ -261,7 +273,7 @@ def _make_scope_json(
 
 def run(
     query: str,
-    limit: int = 300,
+    limit: int = 0,
     out: Path | None = None,
 ) -> dict:
     """可作为库函数调用。返回 scope JSON dict。"""
@@ -295,7 +307,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="V6OP 问财选股 Source")
     parser.add_argument("--query",  required=True,       help="自然语言选股语句")
-    parser.add_argument("--limit",  type=int, default=300, help="最大返回只数")
+    parser.add_argument("--limit",  type=int, default=0, help="最大返回只数；0 表示不限档位")
     parser.add_argument("--out",    default="output/current/wencai_scope.json")
     args = parser.parse_args()
 

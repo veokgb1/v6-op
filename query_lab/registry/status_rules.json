@@ -1,0 +1,70 @@
+{
+  "version": "v1",
+  "description": "QueryLab 状态分类规则",
+  "status_definitions": {
+    "stable": {
+      "zh": "稳定",
+      "description": "多次实测均成功返回合理数量结果",
+      "min_runs": 2,
+      "min_success_rate": 0.8,
+      "can_enter_p1_p6": true,
+      "can_enter_normalizer": true
+    },
+    "unstable": {
+      "zh": "不稳定",
+      "description": "结果忽有忽无，成功率在50%~80%之间",
+      "min_runs": 2,
+      "min_success_rate": 0.5,
+      "can_enter_p1_p6": false,
+      "can_enter_normalizer": false
+    },
+    "risky": {
+      "zh": "高风险",
+      "description": "包含危险词、模糊语义或问财可能误解的表达",
+      "can_enter_p1_p6": false,
+      "can_enter_normalizer": false,
+      "manual_review_required": true
+    },
+    "failed": {
+      "zh": "失败",
+      "description": "返回None、empty、error或timeout",
+      "can_enter_p1_p6": false,
+      "can_enter_normalizer": false
+    },
+    "forbidden": {
+      "zh": "禁用",
+      "description": "明确禁止使用的表达，只作为反例",
+      "can_enter_p1_p6": false,
+      "can_enter_normalizer": false,
+      "block_in_system": true
+    },
+    "invalid_query": {
+      "zh": "非法查询",
+      "description": "中文预检失败：包含英文整句或不含中文字符",
+      "can_enter_p1_p6": false,
+      "can_enter_normalizer": false,
+      "block_in_system": true,
+      "do_not_call_wencai": true
+    },
+    "pending": {
+      "zh": "待测",
+      "description": "用户提出但尚未实测的候选语义",
+      "can_enter_p1_p6": false,
+      "can_enter_normalizer": false
+    }
+  },
+  "transition_rules": [
+    {"from": "pending", "to": "testing", "trigger": "manual_run"},
+    {"from": "testing", "to": "stable", "condition": "success_rate >= 0.8 AND run_count >= 2"},
+    {"from": "testing", "to": "unstable", "condition": "0.5 <= success_rate < 0.8"},
+    {"from": "testing", "to": "risky", "condition": "has_risk_tags"},
+    {"from": "testing", "to": "failed", "condition": "success_rate < 0.5 OR always_empty"},
+    {"from": "stable", "to": "risky", "trigger": "new_evidence_shows_risk"},
+    {"from": "any", "to": "forbidden", "trigger": "manual_override"}
+  ],
+  "risk_tags": [
+    "vague_word", "sentiment_word", "prediction_word", "fuzzy_condition",
+    "non_standard_field", "jma_unverified", "sector_route_ambiguous"
+  ],
+  "chinese_whitelist_abbrev": ["A股", "ST", "MACD", "KDJ", "KD", "PE", "PB", "ROE", "ETF", "BOLL", "JMA"]
+}

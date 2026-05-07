@@ -27,6 +27,7 @@ import pickle
 import sys
 import threading
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,7 @@ CYAN   = "\033[96m"
 RESET  = "\033[0m"
 
 _LOG_EVENTS: list[dict[str, str]] = []
+_WATERFALL_LOG_LIMIT = 40
 
 # 可选实时日志 sink。若设置为 callable(level, msg)，每次 _log() 时同步调用。
 # v6op_server 在后台执行前设置此 sink，实现运行中事件实时推送到 /api/stream。
@@ -131,7 +133,7 @@ def _log_code_waterfall(
     label: str,
     codes: list[str],
     *,
-    limit: int = 5000,
+    limit: int = _WATERFALL_LOG_LIMIT,
 ) -> None:
     """Emit V5-style per-code waterfall logs with a guardrail for huge scopes."""
     total = len(codes)
@@ -147,9 +149,96 @@ def _log_code_waterfall(
 
 
 def _make_run_id() -> str:
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    salt = hashlib.sha1(ts.encode()).hexdigest()[:6]
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    salt = uuid.uuid4().hex[:6]
     return f"run_{ts}_{salt}"
+
+
+def _scope_id_for_codes(source_type: str, codes: list[str]) -> str:
+    key = f"{source_type}|run_scope|" + ",".join(sorted(codes[:30]))
+    return hashlib.sha1(key.encode()).hexdigest()[:16]
+
+
+def _sync_scope_code_alias(scope: dict[str, Any]) -> None:
+    """Keep scope_codes and the legacy codes alias synchronized."""
+    codes = list(scope.get("scope_codes") or scope.get("codes") or [])
+    scope["scope_codes"] = codes
+    scope["codes"] = codes
+    scope["scope_count"] = len(codes)
+
+
+def _normalize_run_scope_limit(raw: Any, warnings: list[str]) -> int:
+    """Normalize the pipeline-wide test gate. 0 means full run."""
+    try:
+        limit = int(raw or 0)
+    except (TypeError, ValueError):
+        warnings.append(f"运行规模参数无效，已按全量处理: {raw!r}")
+        return 0
+    if limit in (0, 500, 2000):
+        return limit
+    warnings.append(f"运行规模只支持 500 / 2000 / 全量，已按全量处理: {limit}")
+    return 0
+
+
+def _apply_run_scope_limit(scope: dict[str, Any], limit: int) -> dict[str, Any]:
+    """
+    Pipeline-wide run scope gate.
+
+    This is deliberately not a Wencai limit, not an all-A limit, not a Bridge
+    limit, and not an execution-path option. Source resolution and Bridge
+    constrained filtering complete first; then this gate limits the effective
+    stock pool that enters fetch planning, all producers, expression/path
+    execution, and report generation. It never skips later steps.
+    """
+    codes = list(scope.get("scope_codes", []))
+    scope["codes"] = codes
+    original_count = len(codes)
+    info: dict[str, Any] = {
+        "mode": "test" if limit > 0 else "full",
+        "limit": limit,
+        "label": f"测试 {limit}" if limit > 0 else "全量",
+        "applied": False,
+        "original_scope_count": original_count,
+        "effective_scope_count": original_count,
+    }
+    if limit > 0 and original_count > limit:
+        effective_codes = codes[:limit]
+        scope["scope_codes_before_run_scope"] = codes
+        scope["scope_id_before_run_scope"] = scope.get("scope_id")
+        scope["scope_codes"] = effective_codes
+        _sync_scope_code_alias(scope)
+        scope["scope_id"] = _scope_id_for_codes(scope.get("source_type", "source"), effective_codes)
+        info.update({
+            "applied": True,
+            "effective_scope_count": len(effective_codes),
+            "truncated_count": original_count - len(effective_codes),
+        })
+    else:
+        info["truncated_count"] = 0
+        _sync_scope_code_alias(scope)
+    scope["run_scope"] = info
+    return info
+
+
+def _empty_scope_error_message(source_cfg: dict[str, Any], scope: dict[str, Any]) -> str:
+    """Return a user-facing diagnosis for an empty source pool."""
+    source_type = source_cfg.get("type") or scope.get("source_type") or "source"
+    source_error = scope.get("error") or scope.get("count_note") or ""
+
+    if source_type == "wencai":
+        query = str(source_cfg.get("query") or scope.get("query_text") or "").strip()
+        query_tip = f" 当前问财语句: {query[:120]}" if query else ""
+        detail = f" 问财诊断: {source_error}" if source_error else ""
+        return f"问财来源没有形成股票池；后续技能没有输入。请先检查问财接口/session 是否正常，或换一句基础问财语句验证接口。{query_tip}{detail}"
+
+    if source_type == "all_a":
+        return "全 A 股来源为空；请检查本地 A 股名单文件是否存在或为空。"
+
+    if source_type == "manual":
+        return "手动输入代码没有解析出股票；请检查代码格式，例如 000001.SZ 或 600000.SH。"
+
+    detail = f": {source_error}" if source_error else ""
+    return f"股票来源为空，无法继续执行{detail}"
 
 
 # ── 内部 Mask 注册与表达式执行 ────────────────────────────────────────
@@ -425,6 +514,8 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
     run_id = _make_run_id()
     warnings: list[str] = []
     env_read = False
+    run_scope_limit = _normalize_run_scope_limit(strategy.get("run_scope_limit", 0), warnings)
+    strategy["run_scope_limit"] = run_scope_limit
 
     _log("HEAD", f"{'='*55}\nV6OP 执行引擎  run_id={run_id}\n{'='*55}")
 
@@ -444,6 +535,8 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
     _log("INFO", "步骤 1/8: 解析股票来源")
     source_cfg = strategy.get("source", {"type": "manual", "codes": []})
     source_type = source_cfg.get("type", "manual")
+    if source_type in ("all_a", "wencai"):
+        source_cfg["limit"] = 0
 
     if source_type == "wencai":
         env_read = True
@@ -452,18 +545,18 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
         source_type,
         manual_codes=source_cfg.get("codes"),
         wencai_query=source_cfg.get("query"),
-        wencai_limit=source_cfg.get("limit", 300),
-        ashare_limit=source_cfg.get("limit", 0),
+        wencai_limit=0,
+        ashare_limit=0,
         log_sink=_log,
     )
     api_called = _source_api_called(source_type, scope.get("status", ""))
     scope_codes = scope.get("scope_codes", [])
     _log("INFO", f"  scope: {scope['status']}  count={scope['scope_count']}")
-    if scope_codes:
-        _log_code_waterfall("来源股票", scope_codes, limit=5000)
 
     # ── G4-Bridge: constrained mode（已有池与问财结果取交集）──────────
     bridge_cfg = strategy.get("bridge") or {}
+    if bridge_cfg:
+        bridge_cfg["wencai_limit"] = 0
     bridge_mode = bridge_cfg.get("mode", "")
     bridge_result: dict[str, Any] = {"mode": bridge_mode, "applied": False}
 
@@ -472,13 +565,13 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
         from sources import wencai_source as _ws
         _ws_result = _ws.run(
             query=bridge_cfg["wencai_query"],
-            limit=bridge_cfg.get("wencai_limit", 300),
+            limit=0,
         )
         wencai_pool = set(_ws_result.get("scope_codes", []))
         before_n = len(scope_codes)
         scope_codes = [c for c in scope_codes if c in wencai_pool]
         scope["scope_codes"] = scope_codes
-        scope["scope_count"] = len(scope_codes)
+        _sync_scope_code_alias(scope)
         bridge_result.update({
             "applied": True,
             "wencai_query": bridge_cfg["wencai_query"],
@@ -494,13 +587,30 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
              f"  Bridge: 原始池 {before_n} → 交集后 {len(scope_codes)}  "
              f"问财返回 {len(wencai_pool)}")
 
+    run_scope = _apply_run_scope_limit(scope, run_scope_limit)
+    strategy["run_scope"] = run_scope
+    scope_codes = scope.get("scope_codes", [])
+    if run_scope["limit"] > 0:
+        _log(
+            "INFO",
+            "  运行规模: "
+            f"{run_scope['label']}  "
+            f"{run_scope['original_scope_count']} -> {run_scope['effective_scope_count']} 只",
+        )
+
+    # 运行规模是 pipeline 闸门，来源与 Bridge 完成后才确定真正进入后续步骤的股票池。
+    # 因此明细日志也只展开有效运行池，避免全 A / 问财大池在测试 500 时刷出几千条日志。
+    if scope_codes:
+        _log_code_waterfall("来源股票", scope_codes, limit=_WATERFALL_LOG_LIMIT)
+
     if scope.get("status") not in ("ok",):
         warnings.append(f"来源解析警告: {scope.get('error')}")
         if not scope_codes:
-            _log("ERROR", "scope 为空，无法继续执行")
+            empty_error = _empty_scope_error_message(source_cfg, scope)
+            _log("ERROR", empty_error)
             return _error_result(
                 run_id,
-                "scope 为空",
+                empty_error,
                 strategy,
                 warnings,
                 env_read,
@@ -769,7 +879,7 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
                 _log_code_waterfall(
                     f"{skill_id} 命中明细",
                     _cached.get("hit_codes", []),
-                    limit=500,
+                    limit=_WATERFALL_LOG_LIMIT,
                 )
                 return _cached
             # ── cache miss: 执行 producer ─────────────────────────────────
@@ -796,7 +906,7 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
             _log_code_waterfall(
                 f"{skill_id} 命中明细",
                 result.get("hit_codes", []),
-                limit=500,
+                limit=_WATERFALL_LOG_LIMIT,
             )
             return result
 
@@ -1001,7 +1111,7 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
         from sources import wencai_source as _ws
         _ws_result = _ws.run(
             query=bridge_cfg["wencai_query"],
-            limit=bridge_cfg.get("wencai_limit", max(len(final_hit_codes) * 2, 300)),
+            limit=0,
         )
         wencai_annotated = set(_ws_result.get("scope_codes", []))
         bridge_annotations = {
@@ -1096,6 +1206,7 @@ def execute(strategy: dict[str, Any]) -> dict[str, Any]:
         ),
         "api_called": api_called,
         "actual_days_used": max_lookback_days,
+        "run_scope": run_scope,
         "bridge_result": bridge_result,
         "v5_modified": False,
         "v6_modified": False,
@@ -1141,6 +1252,8 @@ def _error_result(
     scope: dict[str, Any] | None = None,
     elapsed_seconds: float | None = None,
 ) -> dict[str, Any]:
+    if scope is not None:
+        _sync_scope_code_alias(scope)
     error_result = {
         "run_id": run_id,
         "generated_at": iso_cst(),
@@ -1179,6 +1292,15 @@ def _error_result(
              for s in strategy.get("skills", [])),
             default=strategy.get("params", {}).get("days", 365),
         ),
+        "run_scope": strategy.get("run_scope", {
+            "mode": "test" if strategy.get("run_scope_limit", 0) else "full",
+            "limit": strategy.get("run_scope_limit", 0),
+            "label": f"测试 {strategy.get('run_scope_limit', 0)}" if strategy.get("run_scope_limit", 0) else "全量",
+            "applied": False,
+            "original_scope_count": (scope or {}).get("scope_count", 0),
+            "effective_scope_count": (scope or {}).get("scope_count", 0),
+            "truncated_count": 0,
+        }),
         "v5_modified": False,
         "v6_modified": False,
     }

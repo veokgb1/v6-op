@@ -49,7 +49,19 @@ class TestSourceResolver:
         assert result["status"] == "ok"
         assert result["scope_count"] == 2
         assert "000001.SZ" in result["scope_codes"]
+        assert result["codes"] == result["scope_codes"]
         assert result["source_type"] == "manual"
+
+    def test_manual_plain_six_digit_codes_are_normalized(self):
+        import source_resolver
+        result = source_resolver.resolve(
+            "manual", manual_codes=["600519", "000001", "300750", "430047"]
+        )
+        assert result["status"] == "ok"
+        assert result["scope_codes"] == [
+            "600519.SH", "000001.SZ", "300750.SZ", "430047.BJ",
+        ]
+        assert result["codes"] == result["scope_codes"]
 
     def test_manual_empty_codes(self):
         import source_resolver
@@ -99,7 +111,7 @@ class TestSourceResolver:
         import source_resolver
         result = source_resolver.resolve("manual", manual_codes=["000001.SZ"])
         required = {"scope_id", "source_type", "scope_codes", "scope_count",
-                    "status", "error", "generated_at"}
+                    "codes", "status", "error", "generated_at"}
         assert required.issubset(result.keys())
 
 
@@ -283,6 +295,85 @@ class TestPhase2BridgeCapability:
         assert result["bridge_result"]["pool_before"] == 2
         assert result["bridge_result"]["pool_after"] == 1
         assert result["scope"]["scope_codes"] == ["000002.SZ"]
+
+    def test_run_scope_limit_applies_after_bridge_before_all_skills(self, monkeypatch, tmp_path):
+        """run_scope_limit 是 pipeline 闸门：Bridge 后统一截断，后续技能仍完整执行。"""
+        import execution_engine as ee
+        import fetch_planner
+        from sources import wencai_source
+
+        source_codes = [f"{i:06d}.SZ" for i in range(1, 601)]
+        bridge_codes = source_codes[50:600]  # Bridge 后 550 只
+        captured_fetch_scope: list[str] = []
+        captured_producer_scope: list[str] = []
+
+        monkeypatch.setattr(ee, "_OUTPUT_ROOT", tmp_path / "output")
+        monkeypatch.setattr(ee, "_MASK_CACHE_DIR", tmp_path / "mask_cache")
+        monkeypatch.setattr(
+            wencai_source,
+            "run",
+            lambda query, limit=0: {
+                "status": "ok",
+                "scope_codes": list(bridge_codes),
+                "scope_count": len(bridge_codes),
+            },
+        )
+
+        def fake_plan(scope_codes, selected_skills, cache_dir=None, lookback_days=365, **kw):
+            captured_fetch_scope[:] = list(scope_codes)
+            return {
+                "prefetch_required": False,
+                "prefetch_plan": {},
+                "prefetch_report": {},
+                "readiness": "ready",
+                "cached_codes": list(scope_codes),
+                "missing_codes": [],
+                "failed_codes": [],
+                "stale_codes": [],
+                "available_codes": list(scope_codes),
+                "failure_rate": 0.0,
+                "cache_dir": str(tmp_path / "kline_daily"),
+                "lookback_days": lookback_days,
+                "kline_skills": ["kline"],
+                "generated_at": "2026-05-06T00:00:00",
+            }
+
+        monkeypatch.setattr(fetch_planner, "plan", fake_plan)
+
+        def fake_loader(skill_id):
+            def _run(codes, cache_dir=None, **kw):
+                captured_producer_scope[:] = list(codes)
+                return {
+                    "skill_id": skill_id,
+                    "skill_name": skill_id,
+                    "hit_semantics": "positive",
+                    "hit_codes": list(codes),
+                    "miss_codes": [],
+                    "hit_count": len(codes),
+                    "miss_count": 0,
+                    "evidence": {},
+                    "mask_id": f"{skill_id}_run_scope_mock",
+                    "params": {},
+                }
+            return _run
+
+        monkeypatch.setattr(ee, "_load_producer_run", fake_loader)
+        result = ee.execute({
+            "source": {"type": "manual", "codes": source_codes},
+            "bridge": {"mode": "constrained", "wencai_query": "测试概念", "wencai_limit": 0},
+            "run_scope_limit": 500,
+            "skills": ["kline"],
+            "path_type": "parallel_and",
+            "params": {},
+        })
+
+        assert result["bridge_result"]["pool_after"] == 550
+        assert result["run_scope"]["applied"] is True
+        assert result["run_scope"]["original_scope_count"] == 550
+        assert result["run_scope"]["effective_scope_count"] == 500
+        assert len(result["scope"]["scope_codes"]) == 500
+        assert captured_fetch_scope == result["scope"]["scope_codes"]
+        assert captured_producer_scope == result["scope"]["scope_codes"]
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -711,8 +802,9 @@ class TestExecutionEngineDemo:
         report = json.loads(report_path.read_text(encoding="utf-8"))
         assert report["run_id"] == result["run_id"]
         assert report["status"] == "error"
+        assert "问财来源没有形成股票池" in result["error"]
         assert report["strategy"]["source"]["status"] == "empty_result"
-        assert report["strategy"]["source"]["limit"] == 5000
+        assert report["strategy"]["source"]["limit"] == 0
         assert report["data_coverage"]["scope_count"] == 0
 
     def test_execute_logs_source_waterfall(self):
@@ -730,6 +822,29 @@ class TestExecutionEngineDemo:
         assert any("来源股票: 开始列出 2/2 只" in msg for msg in messages)
         assert any("来源股票 0001/0002: 000001.SZ" in msg for msg in messages)
         assert any("来源股票 0002/0002: 000002.SZ" in msg for msg in messages)
+
+    def test_execute_caps_large_waterfall_log(self):
+        import execution_engine
+        from execution_engine import execute
+
+        codes = [f"{i:06d}.SZ" for i in range(1, 46)]
+        execute({
+            "source": {"type": "manual", "codes": codes},
+            "skills": [],
+            "path_type": "parallel_and",
+            "params": {},
+        })
+
+        messages = [event["msg"] for event in execution_engine.get_log_events()]
+        assert any("40/45" in msg for msg in messages)
+        assert any("0040/0045" in msg for msg in messages)
+        assert not any("0041/0045" in msg for msg in messages)
+
+    def test_run_id_unique_for_fast_consecutive_runs(self):
+        import execution_engine
+
+        run_ids = [execution_engine._make_run_id() for _ in range(20)]
+        assert len(set(run_ids)) == len(run_ids)
 
     def test_execute_producer_identity_complete(self):
         from execution_engine import execute, DEMO_STRATEGIES
